@@ -41,6 +41,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var statusButtonLabel: SKLabelNode!
     var speakerButton: SKShapeNode!
     var speakerLabel: SKLabelNode!
+    var resetButton: SKShapeNode!
+    var resetButtonLabel: SKLabelNode!
+    
+    var levelBox: SKShapeNode!
+    var highBox: SKShapeNode!
+    var speedBox: SKShapeNode!
+    var timeBox: SKShapeNode!
+    var scoreBox: SKShapeNode!
 
     override func didMove(to view: SKView) {
         if UserDefaults.standard.object(forKey: "SoundOn") == nil { soundOn = true }
@@ -93,7 +101,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
-        if statusButton == nil { return } // Kaldes før didMove
+        if statusButton == nil { return }
         createWalls()
         layoutHUD()
         paddle.position.y = 80
@@ -116,31 +124,40 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         speakerLabel = SKLabelNode(fontNamed: "Menlo-Bold"); speakerLabel.fontSize = 10
         speakerLabel.position = CGPoint(x: 25, y: 8); speakerButton.addChild(speakerLabel)
         
-        let levelBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 85, height: 32), cornerRadius: 8)
+        levelBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 85, height: 32), cornerRadius: 8)
         levelBox.fillColor = SKColor(white: 0.2, alpha: 0.9); levelBox.strokeColor = .systemPurple
+        levelBox.name = "levelBox"
         addChild(levelBox)
         levelLabel = SKLabelNode(fontNamed: "Menlo-Bold"); levelLabel.fontSize = 11; levelLabel.fontColor = .systemPurple
         levelLabel.position = CGPoint(x: 42, y: 8); levelBox.addChild(levelLabel)
         
-        let highBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
+        highBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
         highBox.fillColor = SKColor(white: 0.2, alpha: 0.9); highBox.strokeColor = .white
         addChild(highBox)
         highScoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); highScoreLabel.fontSize = 10; highScoreLabel.fontColor = .cyan
         highScoreLabel.position = CGPoint(x: 47, y: 8); highBox.addChild(highScoreLabel)
         
-        let speedBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
+        speedBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
         speedBox.fillColor = SKColor(white: 0.2, alpha: 0.9); speedBox.strokeColor = .yellow
         addChild(speedBox)
         speedLabel = SKLabelNode(fontNamed: "Menlo-Bold"); speedLabel.fontSize = 10; speedLabel.fontColor = .yellow
         speedLabel.position = CGPoint(x: 47, y: 8); speedBox.addChild(speedLabel)
         
-        let timeBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 90, height: 32), cornerRadius: 8)
+        resetButton = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
+        resetButton.fillColor = SKColor(white: 0.25, alpha: 0.9); resetButton.strokeColor = .systemRed
+        resetButton.name = "resetButton"
+        addChild(resetButton)
+        resetButtonLabel = SKLabelNode(fontNamed: "Menlo-Bold"); resetButtonLabel.fontSize = 10; resetButtonLabel.fontColor = .systemRed
+        resetButtonLabel.text = "RESET ALL"
+        resetButtonLabel.position = CGPoint(x: 47, y: 8); resetButton.addChild(resetButtonLabel)
+        
+        timeBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 90, height: 32), cornerRadius: 8)
         timeBox.fillColor = SKColor(white: 0.2, alpha: 0.9); timeBox.strokeColor = .white
         addChild(timeBox)
         timeLabel = SKLabelNode(fontNamed: "Menlo-Bold"); timeLabel.fontSize = 10
         timeLabel.position = CGPoint(x: 45, y: 8); timeBox.addChild(timeLabel)
         
-        let scoreBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 90, height: 32), cornerRadius: 8)
+        scoreBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 90, height: 32), cornerRadius: 8)
         scoreBox.fillColor = SKColor(white: 0.2, alpha: 0.9); scoreBox.strokeColor = .white
         addChild(scoreBox)
         scoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); scoreLabel.fontSize = 10; scoreLabel.fontColor = .systemYellow
@@ -151,16 +168,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     func layoutHUD() {
-        guard statusButton != nil, levelLabel != nil else { return }
+        guard statusButton != nil else { return }
         statusButton.position = CGPoint(x: 15, y: size.height - 50)
         speakerButton.position = CGPoint(x: 100, y: size.height - 50)
-        for child in children {
-            if child.children.contains(where: { $0 === levelLabel }) { child.position = CGPoint(x: 160, y: size.height - 50) }
-            if child.children.contains(where: { $0 === highScoreLabel }) { child.position = CGPoint(x: 255, y: size.height - 50) }
-            if child.children.contains(where: { $0 === speedLabel }) { child.position = CGPoint(x: 360, y: size.height - 50) }
-            if child.children.contains(where: { $0 === timeLabel }) { child.position = CGPoint(x: size.width - 190, y: size.height - 50) }
-            if child.children.contains(where: { $0 === scoreLabel }) { child.position = CGPoint(x: size.width - 90, y: size.height - 50) }
-        }
+        levelBox.position = CGPoint(x: 160, y: size.height - 50)
+        highBox.position = CGPoint(x: 255, y: size.height - 50)
+        speedBox.position = CGPoint(x: 360, y: size.height - 50)
+        resetButton.position = CGPoint(x: size.width - 295, y: size.height - 50)
+        timeBox.position = CGPoint(x: size.width - 190, y: size.height - 50)
+        scoreBox.position = CGPoint(x: size.width - 90, y: size.height - 50)
         gameOverLabel?.position = CGPoint(x: size.width/2, y: size.height/2 + 60)
     }
     
@@ -215,7 +231,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         scoreLabel.text = String(format: "Points: %02d", score)
         highScoreLabel.text = String(format: "High: %02d", highScore)
         speedLabel.text = "Speed: \(Int(currentSpeed()/baseSpeed*100))%"
-        speakerLabel.text = soundOn ? "🔊 ON" : "🔇 OFF"
+        speakerLabel.text = soundOn ? "ON" : "OFF"
         if hiddenRowsRemaining > 0 { levelLabel.text = "Level: \(level) (+\(hiddenRowsRemaining))" }
         else { levelLabel.text = "Level: \(level)" }
         if isGameOver { statusButtonLabel.text = "START"; statusButton.fillColor = .systemGreen }
@@ -228,6 +244,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupLevel(level); disarmBall()
         ball.position = CGPoint(x: size.width/2, y: size.height/2)
         ball.physicsBody?.velocity = .zero
+        ball.isHidden = false
         gameOverLabel.text = "Press SpaceBar to Play"; gameOverLabel.fontColor = .white; gameOverLabel.isHidden = false
         updateHUD()
     }
@@ -256,14 +273,173 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         updateHUD()
     }
     func toggleSound() { soundOn.toggle(); UserDefaults.standard.set(soundOn, forKey: "SoundOn"); updateHUD(); if soundOn { playHitSound() } }
-    func restartGame() { score = 25; level = 1; prepareGame() }
+    func restartGame() { score = 25; prepareGame() }
+    
+    func promptForLevel() {
+        if isPlaying {
+            gamePaused = true; isPlaying = false
+            pausedVelocity = ball.physicsBody?.velocity ?? .zero
+            ball.physicsBody?.velocity = .zero
+        }
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Change Level"
+            alert.informativeText = "Enter level number (1-99):"
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+            textField.stringValue = "\(self.level)"
+            alert.accessoryView = textField
+            alert.window.initialFirstResponder = textField
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                if let newLevel = Int(textField.stringValue), (1...99).contains(newLevel) {
+                    self.level = newLevel
+                    UserDefaults.standard.set(newLevel, forKey: "CurrentLevel")
+                    self.score = 25
+                    self.prepareGame()
+                }
+            } else {
+                if self.gamePaused {
+                    self.gamePaused = false; self.isPlaying = true
+                    self.ball.physicsBody?.velocity = self.pausedVelocity
+                    self.gameOverLabel.isHidden = true
+                    self.updateHUD()
+                }
+            }
+        }
+    }
+    
+    func confirmResetAll() {
+        if isPlaying {
+            gamePaused = true; isPlaying = false
+            pausedVelocity = ball.physicsBody?.velocity ?? .zero
+            ball.physicsBody?.velocity = .zero
+        }
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Reset All Progress?"
+            alert.informativeText = "This will reset score, high score and level to 1. This cannot be undone."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Reset All")
+            alert.addButton(withTitle: "Cancel")
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                self.resetAllProgress()
+            } else {
+                if self.gamePaused {
+                    self.gamePaused = false; self.isPlaying = true
+                    self.ball.physicsBody?.velocity = self.pausedVelocity
+                    self.gameOverLabel.isHidden = true
+                    self.updateHUD()
+                }
+            }
+        }
+    }
+    
+    func resetAllProgress() {
+        score = 25
+        highScore = 0
+        level = 1
+        UserDefaults.standard.removeObject(forKey: "HighScore")
+        UserDefaults.standard.removeObject(forKey: "CurrentLevel")
+        UserDefaults.standard.set(0, forKey: "HighScore")
+        UserDefaults.standard.set(1, forKey: "CurrentLevel")
+        prepareGame()
+    }
+    
     func makeBrickFall(_ brick: SKNode) {
+        guard let brickSprite = brick as? SKSpriteNode else {
+            brick.removeFromParent()
+            return
+        }
         brick.name = nil
-        brick.physicsBody?.isDynamic = true
-        brick.physicsBody?.collisionBitMask = 0; brick.physicsBody?.categoryBitMask = 0; brick.physicsBody?.contactTestBitMask = 0
-        brick.physicsBody?.velocity = CGVector(dx: CGFloat.random(in: -80...80), dy: -350)
-        brick.physicsBody?.angularVelocity = CGFloat.random(in: -6...6)
-        brick.run(.sequence([.wait(forDuration: 2.0), .removeFromParent()]))
+        let originalColor = brickSprite.color
+        let originalSize = brickSprite.size
+        
+        // Container for 3D tumbling
+        let container = SKNode()
+        container.position = brick.position
+        container.zPosition = 10
+        addChild(container)
+        brick.removeFromParent()
+        
+        // Shadow on ground
+        let shadow = SKShapeNode(ellipseOf: CGSize(width: originalSize.width*0.9, height: 12))
+        shadow.fillColor = .black
+        shadow.strokeColor = .clear
+        shadow.alpha = 0.35
+        shadow.position = CGPoint(x: 0, y: -size.height/2 + 80)
+        shadow.zPosition = -1
+        container.addChild(shadow)
+        
+        // Main brick face
+        let front = SKSpriteNode(color: originalColor, size: originalSize)
+        front.zPosition = 1
+        container.addChild(front)
+        
+        // Top edge for thickness illusion
+        let topEdge = SKSpriteNode(color: originalColor.blended(withFraction: 0.35, of: .white) ?? originalColor, size: CGSize(width: originalSize.width, height: 6))
+        topEdge.position = CGPoint(x: 0, y: originalSize.height/2)
+        topEdge.zPosition = 0
+        container.addChild(topEdge)
+        
+        // Side edge
+        let sideEdge = SKSpriteNode(color: originalColor.blended(withFraction: 0.35, of: .black) ?? originalColor, size: CGSize(width: 6, height: originalSize.height))
+        sideEdge.position = CGPoint(x: originalSize.width/2, y: 0)
+        sideEdge.zPosition = 0
+        container.addChild(sideEdge)
+        
+        // Physics for natural fall - FIXED: use CGFloat ranges
+        container.physicsBody = SKPhysicsBody(rectangleOf: originalSize)
+        container.physicsBody?.isDynamic = true
+        container.physicsBody?.collisionBitMask = 0
+        container.physicsBody?.categoryBitMask = 0
+        container.physicsBody?.contactTestBitMask = 0
+        container.physicsBody?.velocity = CGVector(dx: CGFloat.random(in: -120.0...120.0), dy: CGFloat.random(in: -380.0...(-280.0)))
+        container.physicsBody?.angularVelocity = CGFloat.random(in: -8.0...8.0)
+        container.physicsBody?.linearDamping = 0.2
+        
+        // 3D tumble: flip around Y (xScale) and X (yScale) while falling
+        let duration: CGFloat = 2.4
+        let tumble3D = SKAction.customAction(withDuration: TimeInterval(duration)) { node, elapsed in
+            let t = elapsed / CGFloat(duration)
+            let spinY = t * .pi * 6.0
+            let xScale = cos(spinY)
+            let spinX = t * .pi * 3.0
+            let yScale = 0.55 + 0.45 * abs(cos(spinX))
+            
+            front.xScale = xScale
+            front.yScale = yScale
+            topEdge.xScale = xScale
+            
+            let isBackface = xScale < 0
+            if isBackface {
+                front.color = originalColor.blended(withFraction: 0.35, of: .black) ?? originalColor
+                topEdge.isHidden = true
+                sideEdge.isHidden = false
+            } else {
+                front.color = originalColor
+                topEdge.isHidden = false
+                sideEdge.isHidden = xScale < 0.4
+            }
+            let edgeOn = abs(xScale) < 0.25
+            topEdge.alpha = edgeOn ? 1.0 : 0.85
+            sideEdge.alpha = edgeOn ? 1.0 : 0.7
+            shadow.xScale = 1.0 - t*0.5
+            shadow.alpha = 0.35 * (1.0 - t)
+        }
+        
+        let fadeAndShrink = SKAction.group([
+            SKAction.sequence([.wait(forDuration: 1.4), .fadeOut(withDuration: 1.0)]),
+            SKAction.sequence([.wait(forDuration: 0.6), .scale(to: 0.35, duration: 1.8)])
+        ])
+        
+        container.run(.sequence([
+            .group([tumble3D, fadeAndShrink]),
+            .removeFromParent()
+        ]))
     }
     func handleMiss() {
         playMissSound(); score -= 5
@@ -340,9 +516,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     override func mouseDown(with event: NSEvent) {
         let loc = event.location(in: self)
-        for n in nodes(at: loc) {
+        let nodes = nodes(at: loc)
+        for n in nodes {
             if n.name == "statusButton" || n.parent?.name == "statusButton" { handleStatusToggle(); return }
             if n.name == "speakerButton" || n.parent?.name == "speakerButton" { toggleSound(); return }
+            if n.name == "resetButton" || n.parent?.name == "resetButton" { confirmResetAll(); return }
+            if n.name == "levelBox" || n === levelLabel || n.parent === levelBox { promptForLevel(); return }
         }
     }
     override func keyDown(with event: NSEvent) { if event.keyCode == 49 { handleStatusToggle() } }
