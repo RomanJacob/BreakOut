@@ -263,7 +263,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = rjd.Game2;
 				PRODUCT_NAME = BreakOut;
 				REGISTER_APP_GROUPS = YES;
@@ -296,7 +296,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = rjd.Game2;
 				PRODUCT_NAME = BreakOut;
 				REGISTER_APP_GROUPS = YES;

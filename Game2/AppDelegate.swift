@@ -12,8 +12,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenu()
     }
 
+    // MARK: - Display / Window size
+    // Finder hvilket display Mac'en har og bygger vindue efter det
+    func displayInfo() -> String {
+        var info = ""
+        for screen in NSScreen.screens {
+            let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? 0
+            let pixelW = CGDisplayPixelsWide(number)
+            let pixelH = CGDisplayPixelsHigh(number)
+            let scale = screen.backingScaleFactor
+            let retina = scale >= 2.0 ? "Retina" : "Ikke-Retina"
+            let visible = screen.visibleFrame
+            info += "Skærm \(number): \(pixelW)x\(pixelH) px, \(Int(visible.width))x\(Int(visible.height)) pt, scale \(scale) (\(retina))\n"
+        }
+        return info
+    }
+
+    func optimalWindowSize(for screen: NSScreen) -> NSSize {
+        // visibleFrame = skærm minus menubar + Dock
+        let visible = screen.visibleFrame
+        // Vi vil max bruge 85% af skærmen, så vinduet altid kan være der
+        let maxW = visible.width * 0.85
+        let maxH = visible.height * 0.85
+
+        // Ønsket størrelse på stor skærm (som nu)
+        var w: CGFloat = 900
+        var h: CGFloat = 700
+
+        // Skaler ned hvis skærmen er lille (f.eks. 13" Air 1440x900, gammel 1280x800)
+        if w > maxW {
+            w = maxW
+            h = w * 700 / 900
+        }
+        if h > maxH {
+            h = maxH
+            w = h * 900 / 700
+        }
+        // Cap på meget store skærme (4K/5K) så spillet ikke bliver kæmpe
+        w = min(w, 1100)
+        h = min(h, 850)
+        // Minimum så HUD ikke klemmes
+        w = max(w, 640)
+        h = max(h, 480)
+        return NSSize(width: round(w), height: round(h))
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let size = NSSize(width: 900, height: 700)
+        // Print display info i Xcode console - så du kan se hvilken Mac der kører
+        print("=== DISPLAY INFO ===\n\(displayInfo())")
+        let screen = NSScreen.main ?? NSScreen.screens.first!
+        let size = optimalWindowSize(for: screen)
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -23,7 +71,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         win.center()
         win.title = "Roman's Breakout"
         win.backgroundColor = NSColor(calibratedRed: 0.04, green: 0.10, blue: 0.19, alpha: 1.0)
-        win.minSize = NSSize(width: 800, height: 600)
+        win.minSize = NSSize(width: 640, height: 480)
         win.isReleasedWhenClosed = false
         win.collectionBehavior = [.fullScreenPrimary]
         
@@ -39,6 +87,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         win.makeMain()
         win.orderFrontRegardless()
         self.window = win
+        win.makeFirstResponder(skView)
+
+        // Mellemrum = Start / Pause / Fortsæt – virker uanset hvilket view der har fokus
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 49, !event.isARepeat else { return event }
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard let self, NSApp.keyWindow === self.window, let scene = self.getGameScene() else { return false }
+                scene.handleStatusToggle()
+                return true
+            }
+            return handled ? nil : event
+        }
         
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -92,6 +152,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let helpMenuItem = NSMenuItem()
         let helpMenu = NSMenu(title: "Help")
         helpMenu.addItem(NSMenuItem(title: "Roman's Breakout Help", action: #selector(showHelp), keyEquivalent: "?"))
+        helpMenu.addItem(NSMenuItem.separator())
+        helpMenu.addItem(NSMenuItem(title: "Show Display Info", action: #selector(showDisplayInfo), keyEquivalent: ""))
         helpMenuItem.submenu = helpMenu
         mainMenu.addItem(helpMenuItem)
         
@@ -103,7 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func showAbout() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let credits = "Created by Roman Dogonowski november 2026 & Meta AI\nVersion \(version)\n\nBreakout-style game for Apple Silicon"
+        let credits = "Created by Roman Dogonowski, October–November 2026\nVersion \(version)\n\nBreakout-style game for Apple Silicon\n\nNew: multi-ball levels (1 → 2 → 3 balls), x3 points with 3 balls, triangle and vertical bricks, explosions and a 3D look."
         let options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: "Roman's Breakout",
             .applicationVersion: version,
@@ -117,14 +179,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "Roman's Breakout - Help"
         alert.informativeText = """
         HOW TO PLAY:
-        • Move mouse to move paddle
-        • Ball must hit paddle first to arm bricks
-        • +1 point on paddle hit, -5 when ball falls
-        • Break all bricks to go to NEXT WAVE
+        • Move the mouse to move the paddle
+        • A ball must hit the paddle before it can break bricks
+          (grey = not ready, coloured = ready)
+        • Only a ball coming from below breaks a brick
+        • Break all bricks to reach the NEXT WAVE / next level
+
+        BALLS:
+        • Levels cycle 1 → 2 → 3 balls, then start over
+        • Missing one or two balls costs nothing
+        • -5 points only when ALL balls are missed;
+          then all balls come back
+        • The ball turns flat on the paddle, oval when falling,
+          and changes colour on every paddle hit
+
+        POINTS:
+        • +1 per paddle hit, +2 per brick
+        • x3 POINTS while all 3 balls are in play
+          (shown as "x3" in the score box)
+        • Start at 25 points, Game Over at 0
+        • Speed +5% per 10 points above 25
+
+        BRICKS:
+        • Levels 1-2: classic bricks
+        • Level 3: triangles pointing up/down
+        • Level 4+: mixed rows of triangles and bricks
+        • Levels 5, 10, 15 …: random vertical bricks
+        • Hit bricks explode and tumble down changing colour
 
         CONTROLS:
         • Space = Start / Pause / Resume
-        • Mouse = Move paddle
         • Click Level box = Change Level 1-99
         • Click Speed % = Change start speed 50-300%
         • Click Speaker = Sound ON/OFF
@@ -135,22 +219,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         • Game > Restart Level (Cmd+R)
         • Game > Reset All Progress (Cmd+Shift+R)
 
-        SCORE:
-        • Start at 25 points
-        • Game Over at 0
-        • Speed +5% per 10 points above 25
-
-        Created by Roman Dogonowski november 2026 & Meta AI
-        Version 3.00 06.11.2026
+        Created by Roman Dogonowski, October–November 2026
         """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
     
+    @objc func showDisplayInfo() {
+        let alert = NSAlert()
+        alert.messageText = "Display Info"
+        alert.informativeText = displayInfo() + "\nWindow: \(Int(window?.frame.width ?? 0))x\(Int(window?.frame.height ?? 0)) pt"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     @objc func changeLevel() { getGameScene()?.promptForLevel() }
     @objc func changeSpeed() { getGameScene()?.promptForSpeed() }
     @objc func restartLevel() { getGameScene()?.restartGame() }
     @objc func resetAll() { getGameScene()?.confirmResetAll() }
 }
-
