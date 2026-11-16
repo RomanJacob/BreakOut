@@ -298,21 +298,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     func setupHUD() {
-        statusButton = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 75, height: 32), cornerRadius: 8)
+        statusButton = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 96, height: 40), cornerRadius: 10)
         statusButton.fillColor = .systemGreen; statusButton.strokeColor = .white
         statusButton.name = "statusButton"; addChild(statusButton)
-        statusButtonLabel = SKLabelNode(fontNamed: "Menlo-Bold"); statusButtonLabel.fontSize = 11
-        statusButtonLabel.fontColor = .black; statusButtonLabel.position = CGPoint(x: 37, y: 8)
+        statusButtonLabel = SKLabelNode(fontNamed: "Menlo-Bold"); statusButtonLabel.fontSize = 13
+        statusButtonLabel.fontColor = .black; statusButtonLabel.position = CGPoint(x: 48, y: 13)
         statusButton.addChild(statusButtonLabel)
         
-        speakerButton = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 50, height: 32), cornerRadius: 8)
+        speakerButton = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 62, height: 40), cornerRadius: 10)
         speakerButton.fillColor = SKColor(white: 0.25, alpha: 0.9); speakerButton.strokeColor = .white
         speakerButton.name = "speakerButton"; addChild(speakerButton)
-        speakerLabel = SKLabelNode(fontNamed: "Menlo-Bold"); speakerLabel.fontSize = 10
+        speakerLabel = SKLabelNode(fontNamed: "Menlo-Bold"); speakerLabel.fontSize = 13
         speakerLabel.isHidden = true; speakerButton.addChild(speakerLabel)
         
         // SF Symbols speaker icons - typical 🔊 and 🔇 with X
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 16, weight: .bold, scale: .medium)
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 19, weight: .bold, scale: .medium)
         if let onImg = NSImage(systemSymbolName: "speaker.wave.3.fill", accessibilityDescription: nil)?.withSymbolConfiguration(symbolConfig) {
             onImg.isTemplate = true
             speakerOnTexture = SKTexture(image: onImg)
@@ -330,47 +330,47 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             speakerOffTexture = v.texture(from: label) ?? SKTexture()
         }
         let initialTex = soundOn ? speakerOnTexture : speakerOffTexture
-        speakerIcon = SKSpriteNode(texture: initialTex, color: .white, size: CGSize(width: 22, height: 22))
+        speakerIcon = SKSpriteNode(texture: initialTex, color: .white, size: CGSize(width: 26, height: 26))
         speakerIcon.colorBlendFactor = 1.0
-        speakerIcon.position = CGPoint(x: 25, y: 16)
+        speakerIcon.position = CGPoint(x: 31, y: 20)
         speakerIcon.name = "speakerIcon"
         speakerButton.addChild(speakerIcon)
         
-        levelBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 85, height: 32), cornerRadius: 8)
+        levelBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 112, height: 40), cornerRadius: 10)
         levelBox.fillColor = SKColor(white: 0.2, alpha: 0.9); levelBox.strokeColor = .systemPurple
         levelBox.name = "levelBox"; addChild(levelBox)
-        levelLabel = SKLabelNode(fontNamed: "Menlo-Bold"); levelLabel.fontSize = 11; levelLabel.fontColor = .systemPurple
-        levelLabel.position = CGPoint(x: 42, y: 8); levelBox.addChild(levelLabel)
+        levelLabel = SKLabelNode(fontNamed: "Menlo-Bold"); levelLabel.fontSize = 13; levelLabel.fontColor = .systemPurple
+        levelLabel.position = CGPoint(x: 56, y: 13); levelBox.addChild(levelLabel)
         
-        highBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
+        highBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 118, height: 40), cornerRadius: 10)
         highBox.fillColor = SKColor(white: 0.2, alpha: 0.9); highBox.strokeColor = .white
         addChild(highBox)
-        highScoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); highScoreLabel.fontSize = 10; highScoreLabel.fontColor = .cyan
-        highScoreLabel.position = CGPoint(x: 47, y: 8); highBox.addChild(highScoreLabel)
+        highScoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); highScoreLabel.fontSize = 13; highScoreLabel.fontColor = .cyan
+        highScoreLabel.position = CGPoint(x: 59, y: 13); highBox.addChild(highScoreLabel)
         
-        speedBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
+        speedBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 128, height: 40), cornerRadius: 10)
         speedBox.fillColor = SKColor(white: 0.2, alpha: 0.9); speedBox.strokeColor = .yellow
         speedBox.name = "speedBox"; addChild(speedBox)
-        speedLabel = SKLabelNode(fontNamed: "Menlo-Bold"); speedLabel.fontSize = 10; speedLabel.fontColor = .yellow
-        speedLabel.position = CGPoint(x: 47, y: 8); speedBox.addChild(speedLabel)
+        speedLabel = SKLabelNode(fontNamed: "Menlo-Bold"); speedLabel.fontSize = 13; speedLabel.fontColor = .yellow
+        speedLabel.position = CGPoint(x: 64, y: 13); speedBox.addChild(speedLabel)
         
-        resetButton = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 95, height: 32), cornerRadius: 8)
+        resetButton = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 118, height: 40), cornerRadius: 10)
         resetButton.fillColor = SKColor(white: 0.25, alpha: 0.9); resetButton.strokeColor = .systemRed
         resetButton.name = "resetButton"; addChild(resetButton)
-        resetButtonLabel = SKLabelNode(fontNamed: "Menlo-Bold"); resetButtonLabel.fontSize = 10; resetButtonLabel.fontColor = .systemRed
-        resetButtonLabel.text = "RESET ALL"; resetButtonLabel.position = CGPoint(x: 47, y: 8); resetButton.addChild(resetButtonLabel)
+        resetButtonLabel = SKLabelNode(fontNamed: "Menlo-Bold"); resetButtonLabel.fontSize = 13; resetButtonLabel.fontColor = .systemRed
+        resetButtonLabel.text = "RESET ALL"; resetButtonLabel.position = CGPoint(x: 59, y: 13); resetButton.addChild(resetButtonLabel)
         
-        timeBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 90, height: 32), cornerRadius: 8)
+        timeBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 108, height: 40), cornerRadius: 10)
         timeBox.fillColor = SKColor(white: 0.2, alpha: 0.9); timeBox.strokeColor = .white
         addChild(timeBox)
-        timeLabel = SKLabelNode(fontNamed: "Menlo-Bold"); timeLabel.fontSize = 10
-        timeLabel.position = CGPoint(x: 45, y: 8); timeBox.addChild(timeLabel)
+        timeLabel = SKLabelNode(fontNamed: "Menlo-Bold"); timeLabel.fontSize = 13
+        timeLabel.position = CGPoint(x: 54, y: 13); timeBox.addChild(timeLabel)
         
-        scoreBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 90, height: 32), cornerRadius: 8)
+        scoreBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 124, height: 40), cornerRadius: 10)
         scoreBox.fillColor = SKColor(white: 0.2, alpha: 0.9); scoreBox.strokeColor = .white
         addChild(scoreBox)
-        scoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); scoreLabel.fontSize = 10; scoreLabel.fontColor = .systemYellow
-        scoreLabel.position = CGPoint(x: 45, y: 8); scoreBox.addChild(scoreLabel)
+        scoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); scoreLabel.fontSize = 13; scoreLabel.fontColor = .systemYellow
+        scoreLabel.position = CGPoint(x: 62, y: 13); scoreBox.addChild(scoreLabel)
         
         gameOverLabel = SKLabelNode(fontNamed: "Menlo-Bold"); gameOverLabel.fontSize = 24
         addChild(gameOverLabel)
@@ -378,14 +378,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     func layoutHUD() {
         guard statusButton != nil else { return }
-        statusButton.position = CGPoint(x: 15, y: size.height - 50)
-        speakerButton.position = CGPoint(x: 100, y: size.height - 50)
-        levelBox.position = CGPoint(x: 160, y: size.height - 50)
-        highBox.position = CGPoint(x: 255, y: size.height - 50)
-        speedBox.position = CGPoint(x: 360, y: size.height - 50)
-        resetButton.position = CGPoint(x: size.width - 295, y: size.height - 50)
-        timeBox.position = CGPoint(x: size.width - 190, y: size.height - 50)
-        scoreBox.position = CGPoint(x: size.width - 90, y: size.height - 50)
+        // Felterne i toppen lægges efter hinanden ud fra deres bredde,
+        // og skaleres ned hvis vinduet er for smalt, så de aldrig overlapper.
+        let left: [SKShapeNode] = [statusButton, speakerButton, levelBox, highBox, speedBox]
+        let right: [SKShapeNode] = [resetButton, timeBox, scoreBox]
+        let gap: CGFloat = 8, margin: CGFloat = 12, minMiddle: CGFloat = 20
+        let wl = left.map { $0.path?.boundingBox.width ?? 0 }
+        let wr = right.map { $0.path?.boundingBox.width ?? 0 }
+        let needed = wl.reduce(0, +) + wr.reduce(0, +) + gap * CGFloat(left.count + right.count - 2) + margin * 2 + minMiddle
+        let k = min(1, size.width / needed)
+        let y = size.height - 12 - 40 * k
+        var x = margin
+        for (n, w) in zip(left, wl) { n.setScale(k); n.position = CGPoint(x: x, y: y); x += (w + gap) * k }
+        x = size.width - margin
+        for (n, w) in zip(right.reversed(), wr.reversed()) { n.setScale(k); x -= w * k; n.position = CGPoint(x: x, y: y); x -= gap * k }
         gameOverLabel?.position = CGPoint(x: size.width/2, y: size.height/2 + 60)
     }
     
@@ -586,9 +592,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         scoreLabel.text = m > 1 ? String(format: "Pts: %02d x%d", score, m) : String(format: "Points: %02d", score)
         scoreLabel.fontColor = m > 1 ? .systemOrange : .systemYellow
         highScoreLabel.text = String(format: "High: %02d", highScore)
-        // Viser din indstilling → den aktuelle fart (som stiger med point og level)
-        let live = Int((currentSpeed() / baseSpeed * 100).rounded())
-        speedLabel.text = "Spd \(startSpeedPercent)%→\(live)%"
+        // Faktisk fart (i %, 100% = 125) – opdateres også løbende i update()
+        if !isPlaying { speedLabel.text = "Speed: \(Int((currentSpeed() / baseSpeed * 100).rounded()))%" }
         speakerIcon?.texture = soundOn ? speakerOnTexture : speakerOffTexture
         if let icon = speakerIcon {
             icon.color = soundOn ? .white : .systemRed
@@ -597,7 +602,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let ballsTag = allBalls.count > 1 ? " " + String(repeating: "●", count: allBalls.count) : ""
         if hiddenRowsRemaining > 0 { levelLabel.text = "Level: \(level) (+\(hiddenRowsRemaining))\(ballsTag)" }
         else { levelLabel.text = "Level: \(level)\(ballsTag)" }
-        levelLabel.fontSize = (levelLabel.text?.count ?? 0) > 12 ? 9 : 11
+        levelLabel.fontSize = (levelLabel.text?.count ?? 0) > 13 ? 11 : 13
         if isGameOver { statusButtonLabel.text = "START"; statusButton.fillColor = .systemGreen }
         else if isPlaying { statusButtonLabel.text = "PLAYING"; statusButton.fillColor = .systemGreen }
         else if gamePaused { statusButtonLabel.text = "PAUSED"; statusButton.fillColor = .systemYellow }
@@ -966,5 +971,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if startTime == 0 { startTime = currentTime }
         let elapsed = currentTime - startTime
         timeLabel.text = String(format: "%02d:%05.2f", Int(elapsed)/60, elapsed.truncatingRemainder(dividingBy: 60))
+        // Speed-feltet opdateres løbende med boldens faktiske fart lige nu
+        let liveSpeed = activeBalls.compactMap { $0.physicsBody?.velocity }.map { hypot($0.dx, $0.dy) }.max() ?? 0
+        let livePct = Int((liveSpeed / baseSpeed * 100).rounded())
+        let speedText = "Speed: \(livePct)%"
+        if speedLabel.text != speedText { speedLabel.text = speedText }
     }
 }
