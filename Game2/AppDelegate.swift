@@ -2,12 +2,14 @@ import Cocoa
 import SpriteKit
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     
     nonisolated override init() { super.init() }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Ingen "Enter Full Screen" i menuerne (macOS tilføjer den ellers automatisk)
+        UserDefaults.standard.set(false, forKey: "NSFullScreenMenuItemEverywhere")
         NSApp.setActivationPolicy(.regular)
         setupMenu()
     }
@@ -73,7 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         win.backgroundColor = NSColor(calibratedRed: 0.04, green: 0.10, blue: 0.19, alpha: 1.0)
         win.minSize = NSSize(width: 640, height: 480)
         win.isReleasedWhenClosed = false
-        win.collectionBehavior = [.fullScreenPrimary]
+        win.collectionBehavior = [.fullScreenNone]
         
         let skView = SKView(frame: NSRect(x: 0, y: 0, width: size.width, height: size.height))
         skView.autoresizingMask = [.width, .height]
@@ -87,6 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         win.makeMain()
         win.orderFrontRegardless()
         self.window = win
+        win.delegate = self
         win.makeFirstResponder(skView)
 
         // Mellemrum = Start / Pause / Fortsæt – virker uanset hvilket view der har fokus
@@ -128,6 +131,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 2. Game Menu
         let gameMenuItem = NSMenuItem()
         let gameMenu = NSMenu(title: "Game")
+        gameMenu.addItem(NSMenuItem(title: "Change Player...", action: #selector(changePlayer), keyEquivalent: "p"))
+        gameMenu.addItem(NSMenuItem(title: "High Scores...", action: #selector(showHighScores), keyEquivalent: "j"))
+        gameMenu.addItem(NSMenuItem.separator())
         gameMenu.addItem(NSMenuItem(title: "Change Level...", action: #selector(changeLevel), keyEquivalent: "l"))
         gameMenu.addItem(NSMenuItem(title: "Change Speed %...", action: #selector(changeSpeed), keyEquivalent: "s"))
         gameMenu.addItem(NSMenuItem.separator())
@@ -137,16 +143,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         gameMenuItem.submenu = gameMenu
         mainMenu.addItem(gameMenuItem)
         
-        // 3. Window Menu
-        let windowMenuItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m"))
-        windowMenu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.zoom(_:)), keyEquivalent: ""))
-        windowMenu.addItem(NSMenuItem.separator())
-        windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
-        windowMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f"))
-        windowMenuItem.submenu = windowMenu
-        mainMenu.addItem(windowMenuItem)
+        // (Ingen Window-menu – kun Game-menu, ingen zoom eller fuld skærm)
         
         // 4. Help Menu - VIGTIG: Så den ikke siger "Help is not available"
         let helpMenuItem = NSMenuItem()
@@ -161,6 +158,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.helpMenu = helpMenu
     }
     
+    // Ingen zoom (heller ikke ved dobbeltklik på titellinjen)
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool { false }
+
     func getGameScene() -> GameScene? { (window?.contentView as? SKView)?.scene as? GameScene }
     
     @objc func showAbout() {
@@ -192,6 +192,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
           then all balls come back
         • The ball turns flat on the paddle, oval when falling,
           and changes colour on every paddle hit
+        • If 2 or 3 balls crash into each other: BIG explosion,
+          an EXTRA ball and +100 points!
 
         POINTS:
         • +1 per paddle hit, +2 per brick
@@ -207,6 +209,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         • Levels 5, 10, 15 …: random vertical bricks
         • Hit bricks explode and tumble down changing colour
 
+        PLAYERS:
+        • Click the player box (👤) or Game > Change Player (Cmd+P)
+          to choose who is playing or add a new player
+        • Every player has their own high score
+        • Click the High box or Game > High Scores (Cmd+J)
+          to see everyone's best score
+
         CONTROLS:
         • Space = Start / Pause / Resume
         • Click Level box = Change Level 1-99
@@ -217,6 +226,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         • Game > Change Level (Cmd+L)
         • Game > Change Speed (Cmd+S)
         • Game > Restart Level (Cmd+R)
+        • Game > Change Player (Cmd+P)
+        • Game > High Scores (Cmd+J)
         • Game > Reset All Progress (Cmd+Shift+R)
 
         Created by Roman Dogonowski, October–November 2026
@@ -237,6 +248,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func changeLevel() { getGameScene()?.promptForLevel() }
     @objc func changeSpeed() { getGameScene()?.promptForSpeed() }
+    @objc func changePlayer() { getGameScene()?.promptForPlayer() }
+    @objc func showHighScores() { getGameScene()?.showHighScores() }
     @objc func restartLevel() { getGameScene()?.restartGame() }
     @objc func resetAll() { getGameScene()?.confirmResetAll() }
 }

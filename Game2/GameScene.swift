@@ -14,7 +14,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     let paddle = SKSpriteNode(color: .white, size: CGSize(width: 120, height: 20))
     
     var score = 25
-    var highScore = UserDefaults.standard.integer(forKey: "HighScore")
+    var highScore = 0
+    var playerName = ""
+    var playerBox: SKShapeNode!
+    var playerLabel: SKLabelNode!
     var soundOn = UserDefaults.standard.bool(forKey: "SoundOn")
     var level = 1
     var startSpeedPercent = 100
@@ -34,13 +37,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func ballCount(for lvl: Int) -> Int { (max(lvl, 1) - 1) % 3 + 1 }
     func ballsText(_ n: Int) -> String { n == 1 ? "1 BALL" : "\(n) BALLS" }
     /// x3 point så længe alle 3 bolde er i spil på et 3-bolde-level, ellers x1
-    func pointMultiplier() -> Int { (allBalls.count == 3 && activeBalls.count == 3) ? 3 : 1 }
+    func pointMultiplier() -> Int { (ballCount(for: level) == 3 && activeBalls.count >= 3) ? 3 : 1 }
     /// Lægger point til (ganget med multiplier) og viser "+N" der hvor det skete
     func addPoints(_ base: Int, at pos: CGPoint) {
         let m = pointMultiplier()
         let pts = base * m
         score += pts
-        if score > highScore { highScore = score; UserDefaults.standard.set(highScore, forKey: "HighScore") }
+        if score > highScore { highScore = score; saveHighScore() }
         let pop = SKLabelNode(fontNamed: "Menlo-Bold")
         pop.text = m > 1 ? "+\(pts) x\(m)" : "+\(pts)"
         pop.fontSize = m > 1 ? 18 : 13
@@ -110,9 +113,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         paddle.position = CGPoint(x: size.width/2, y: 80)
         addChild(paddle)
         
+        loadPlayer()
+        installMouseMonitor()
         setupHUD()
         layoutHUD()
         prepareGame()
+        if playerName.isEmpty { promptForPlayer(firstTime: true) }
     }
     
     // MARK: - 3D-look (teksturer med lys, skygge og glans)
@@ -213,6 +219,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     /// Sørger for at der er det rigtige antal bolde til nuværende level
     func configureBallsForLevel() {
+        // Ekstra-bolde fra sammenstød gælder kun det level, de kom i
+        for b in extraBalls where isBonusBall(b) { b.removeFromParent() }
+        extraBalls.removeAll { isBonusBall($0) }
         let wanted = ballCount(for: level) - 1
         while extraBalls.count > wanted { extraBalls.removeLast().removeFromParent() }
         while extraBalls.count < wanted {
@@ -255,10 +264,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func parkBall(_ b: SKShapeNode) {
         b.physicsBody?.velocity = .zero
         disarmBall(b)
+        // En parkeret (misset) bold må ikke kunne ramme noget
+        b.physicsBody?.categoryBitMask = 0
+        b.physicsBody?.collisionBitMask = 0
+        b.physicsBody?.contactTestBitMask = 0
         b.isHidden = true
         b.position = CGPoint(x: size.width/2, y: size.height/2)
     }
     func pauseBalls() {
+        showCursorNow()
         for b in allBalls {
             if b.userData == nil { b.userData = NSMutableDictionary() }
             b.userData?["pv"] = NSValue(point: NSPoint(x: b.physicsBody?.velocity.dx ?? 0, y: b.physicsBody?.velocity.dy ?? 0))
@@ -344,7 +358,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         highBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 118, height: 40), cornerRadius: 10)
         highBox.fillColor = SKColor(white: 0.2, alpha: 0.9); highBox.strokeColor = .white
-        addChild(highBox)
+        highBox.name = "highBox"; addChild(highBox)
         highScoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); highScoreLabel.fontSize = 13; highScoreLabel.fontColor = .cyan
         highScoreLabel.position = CGPoint(x: 59, y: 13); highBox.addChild(highScoreLabel)
         
@@ -372,6 +386,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         scoreLabel = SKLabelNode(fontNamed: "Menlo-Bold"); scoreLabel.fontSize = 13; scoreLabel.fontColor = .systemYellow
         scoreLabel.position = CGPoint(x: 62, y: 13); scoreBox.addChild(scoreLabel)
         
+        playerBox = SKShapeNode(rect: CGRect(x: 0, y: 0, width: 150, height: 40), cornerRadius: 10)
+        playerBox.fillColor = SKColor(white: 0.2, alpha: 0.9); playerBox.strokeColor = .systemGreen
+        playerBox.name = "playerBox"; addChild(playerBox)
+        playerLabel = SKLabelNode(fontNamed: "Menlo-Bold"); playerLabel.fontSize = 13; playerLabel.fontColor = .systemGreen
+        playerLabel.position = CGPoint(x: 75, y: 13); playerBox.addChild(playerLabel)
+
         gameOverLabel = SKLabelNode(fontNamed: "Menlo-Bold"); gameOverLabel.fontSize = 24
         addChild(gameOverLabel)
     }
@@ -380,7 +400,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard statusButton != nil else { return }
         // Felterne i toppen lægges efter hinanden ud fra deres bredde,
         // og skaleres ned hvis vinduet er for smalt, så de aldrig overlapper.
-        let left: [SKShapeNode] = [statusButton, speakerButton, levelBox, highBox, speedBox]
+        let left: [SKShapeNode] = [statusButton, speakerButton, playerBox, levelBox, highBox, speedBox]
         let right: [SKShapeNode] = [resetButton, timeBox, scoreBox]
         let gap: CGFloat = 8, margin: CGFloat = 12, minMiddle: CGFloat = 20
         let wl = left.map { $0.path?.boundingBox.width ?? 0 }
@@ -566,15 +586,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func disarmBall(_ b: SKShapeNode) {
         if b.userData == nil { b.userData = NSMutableDictionary() }
         b.userData?["armed"] = false
-        b.physicsBody?.collisionBitMask = PhysicsCategory.paddle | PhysicsCategory.wall
-        b.physicsBody?.contactTestBitMask = PhysicsCategory.paddle | PhysicsCategory.wall
+        b.physicsBody?.categoryBitMask = PhysicsCategory.ball
+        b.physicsBody?.collisionBitMask = PhysicsCategory.paddle | PhysicsCategory.wall | PhysicsCategory.ball
+        b.physicsBody?.contactTestBitMask = PhysicsCategory.paddle | PhysicsCategory.wall | PhysicsCategory.ball
         setBallColor(b, .systemGray)
     }
     func armBall(_ b: SKShapeNode) {
         if b.userData == nil { b.userData = NSMutableDictionary() }
         b.userData?["armed"] = true
-        b.physicsBody?.collisionBitMask = PhysicsCategory.paddle | PhysicsCategory.wall | PhysicsCategory.brick
-        b.physicsBody?.contactTestBitMask = PhysicsCategory.paddle | PhysicsCategory.brick | PhysicsCategory.wall
+        b.physicsBody?.categoryBitMask = PhysicsCategory.ball
+        b.physicsBody?.collisionBitMask = PhysicsCategory.paddle | PhysicsCategory.wall | PhysicsCategory.brick | PhysicsCategory.ball
+        b.physicsBody?.contactTestBitMask = PhysicsCategory.paddle | PhysicsCategory.brick | PhysicsCategory.wall | PhysicsCategory.ball
         // Ny farve hver gang bolden rammer pladen
         let idx = ((b.userData?["colorIdx"] as? Int) ?? -1) + 1
         b.userData?["colorIdx"] = idx
@@ -592,6 +614,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         scoreLabel.text = m > 1 ? String(format: "Pts: %02d x%d", score, m) : String(format: "Points: %02d", score)
         scoreLabel.fontColor = m > 1 ? .systemOrange : .systemYellow
         highScoreLabel.text = String(format: "High: %02d", highScore)
+        let shownName = playerName.isEmpty ? "?" : (playerName.count > 11 ? String(playerName.prefix(10)) + "…" : playerName)
+        playerLabel.text = "👤 \(shownName)"
         // Faktisk fart (i %, 100% = 125) – opdateres også løbende i update()
         if !isPlaying { speedLabel.text = "Speed: \(Int((currentSpeed() / baseSpeed * 100).rounded()))%" }
         speakerIcon?.texture = soundOn ? speakerOnTexture : speakerOffTexture
@@ -637,7 +661,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 resumeBalls()
                 gameOverLabel.isHidden = true
             } else {
-                isPlaying = true; gameOverLabel.isHidden = true; launchAllBalls(atSpeed: getStartSpeed())
+                isPlaying = true; gameOverLabel.isHidden = true; launchAllBalls(atSpeed: currentSpeed())
             }
         }
         updateHUD()
@@ -648,12 +672,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func promptForLevel() {
         if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
         DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Change Level"; alert.informativeText = "Enter level number (1-99):"
-            alert.alertStyle = .informational; alert.addButton(withTitle: "OK"); alert.addButton(withTitle: "Cancel")
-            let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24)); tf.stringValue = "\(self.level)"
-            alert.accessoryView = tf; alert.window.initialFirstResponder = tf
-            if alert.runModal() == .alertFirstButtonReturn, let nl = Int(tf.stringValue), (1...99).contains(nl) {
+            let tf = NSTextField(string: "\(self.level)")
+            let okPressed = InputDialog.run(title: "Change Level", message: "Enter level number (1-99):", field: tf)
+            if okPressed, let nl = Int(tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)), (1...99).contains(nl) {
                 self.level = nl; UserDefaults.standard.set(nl, forKey: "CurrentLevel"); self.score = 25; self.prepareGame()
             } else if self.gamePaused {
                 self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true; self.updateHUD()
@@ -676,16 +697,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func promptForSpeed() {
         if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
         DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Change Start Speed"; alert.informativeText = "Enter start speed in % (50-300%):\n100% = 125, 150% = 187, 200% = 250"
-            alert.alertStyle = .informational; alert.addButton(withTitle: "OK"); alert.addButton(withTitle: "Cancel")
-            let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24)); tf.stringValue = "\(self.startSpeedPercent)"
-            alert.accessoryView = tf; alert.window.initialFirstResponder = tf
-            if alert.runModal() == .alertFirstButtonReturn {
+            let nowPct = Int((self.currentSpeed() / self.baseSpeed * 100).rounded())
+            let tf = NSTextField(string: "\(nowPct)")
+            let okPressed = InputDialog.run(title: "Change Speed",
+                                            message: "Enter ball speed in % (50-300).\nThe ball gets this speed right away, and it still goes up as you score points.",
+                                            field: tf)
+            if okPressed {
                 // Tillad "150", "150%" og " 150 " – og hold værdien inden for 50-300
                 let raw = tf.stringValue.replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
                 if let typed = Int(raw) {
-                    let ns = min(max(typed, 50), 300)
+                    let wanted = CGFloat(min(max(typed, 50), 300))
+                    // Det du skriver er den fart bolden får NU (og det der står i Speed-feltet).
+                    // Derfor regnes level- og point-tillæg fra, når start-farten gemmes.
+                    let factor = self.currentSpeed() / max(self.getStartSpeed(), 0.001)
+                    let ns = max(10, Int((wanted / factor).rounded()))
                     self.startSpeedPercent = ns
                     UserDefaults.standard.set(ns, forKey: "StartSpeedPercent")
                     self.applyNewSpeedToBalls()
@@ -699,18 +724,102 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "Reset All Progress?"; alert.informativeText = "This will reset score, high score, level and speed to defaults. This cannot be undone."
+            alert.messageText = "Reset All Progress?"; alert.informativeText = "This will reset score, level, speed and the high score for the current player. Other players keep their high scores. This cannot be undone."
             alert.alertStyle = .warning; alert.addButton(withTitle: "Reset All"); alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { self.resetAllProgress() }
             else if self.gamePaused { self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true; self.updateHUD() }
         }
     }
+    // MARK: - Spillere og high scores
+    // High scores gemmes pr. spiller i UserDefaults under "PlayerHighScores" [navn: point]
+    func allHighScores() -> [String: Int] {
+        (UserDefaults.standard.dictionary(forKey: "PlayerHighScores") as? [String: Int]) ?? [:]
+    }
+    func saveHighScore() {
+        guard !playerName.isEmpty else { return }
+        var all = allHighScores()
+        if highScore > (all[playerName] ?? 0) || highScore == 0 { all[playerName] = highScore }
+        UserDefaults.standard.set(all, forKey: "PlayerHighScores")
+    }
+    func selectPlayer(_ name: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        playerName = String(clean.prefix(16))
+        UserDefaults.standard.set(playerName, forKey: "CurrentPlayer")
+        var all = allHighScores()
+        if all[playerName] == nil { all[playerName] = 0; UserDefaults.standard.set(all, forKey: "PlayerHighScores") }
+        highScore = all[playerName] ?? 0
+        updateHUD()
+    }
+    func loadPlayer() {
+        var all = allHighScores()
+        // Flyt gammel fælles high score over til første spiller
+        let old = UserDefaults.standard.integer(forKey: "HighScore")
+        playerName = UserDefaults.standard.string(forKey: "CurrentPlayer") ?? ""
+        if !playerName.isEmpty {
+            if old > 0 && all.isEmpty { all[playerName] = old; UserDefaults.standard.set(all, forKey: "PlayerHighScores") }
+            highScore = all[playerName] ?? 0
+        } else {
+            highScore = old
+        }
+    }
+    /// Spørg hvem der spiller – vælg en eksisterende spiller eller skriv et nyt navn
+    func promptForPlayer(firstTime: Bool = false) {
+        if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
+        DispatchQueue.main.async {
+            let combo = NSComboBox(frame: NSRect(x: 0, y: 0, width: 200, height: 26))
+            let names = self.allHighScores().keys.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            combo.addItems(withObjectValues: names)
+            combo.completes = true
+            combo.stringValue = self.playerName
+            let okPressed = InputDialog.run(title: firstTime ? "Welcome to Roman's Breakout!" : "Who is playing?",
+                                            message: "Choose a player from the list or type a new name:",
+                                            field: combo, showCancel: !firstTime)
+            if okPressed {
+                let typed = combo.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !typed.isEmpty {
+                    if typed != self.playerName { self.selectPlayer(typed); self.score = 25; self.prepareGame() }
+                } else if self.playerName.isEmpty {
+                    self.selectPlayer("Player 1")
+                }
+            }
+            if self.gamePaused { self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true }
+            self.updateHUD()
+        }
+    }
+    /// Viser alle spilleres high scores, bedste først
+    func showHighScores() {
+        if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
+        DispatchQueue.main.async {
+            self.saveHighScore()
+            let list = self.allHighScores().sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            let medals = ["🥇", "🥈", "🥉"]
+            var text = ""
+            for (i, e) in list.enumerated() {
+                let mark = i < 3 ? medals[i] : "  \(i + 1)."
+                let me = e.key == self.playerName ? "  ← playing" : ""
+                text += "\(mark)  \(e.key):  \(e.value)\(me)\n"
+            }
+            if text.isEmpty { text = "No high scores yet." }
+            let alert = NSAlert()
+            alert.messageText = "High Scores"
+            alert.informativeText = text
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            if self.gamePaused { self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true; self.updateHUD() }
+        }
+    }
+
     func resetAllProgress() {
         score = 25; highScore = 0; level = 1; startSpeedPercent = 100
+        // Nulstiller kun den nuværende spillers high score – de andre spillere beholder deres
+        if !playerName.isEmpty {
+            var all = allHighScores(); all[playerName] = 0
+            UserDefaults.standard.set(all, forKey: "PlayerHighScores")
+        }
         UserDefaults.standard.removeObject(forKey: "HighScore")
-        UserDefaults.standard.removeObject(forKey: "CurrentLevel")
-        UserDefaults.standard.removeObject(forKey: "StartSpeedPercent")
-        UserDefaults.standard.set(0, forKey: "HighScore"); UserDefaults.standard.set(1, forKey: "CurrentLevel"); UserDefaults.standard.set(100, forKey: "StartSpeedPercent")
+        UserDefaults.standard.set(1, forKey: "CurrentLevel"); UserDefaults.standard.set(100, forKey: "StartSpeedPercent")
         prepareGame()
     }
     // MARK: - Eksplosion
@@ -837,13 +946,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     func handleMiss(_ b: SKShapeNode) {
         playMissSound()
-        parkBall(b)
+        if isBonusBall(b) {
+            // Ekstra-bolde forsvinder bare, når de misses
+            b.removeFromParent()
+            extraBalls.removeAll { $0 === b }
+            if !activeBalls.isEmpty { updateHUD(); return }
+        } else {
+            parkBall(b)
+        }
         // Der er stadig bolde i spil -> ingen strafpoint
         if !activeBalls.isEmpty { updateHUD(); return }
         // Alle bolde er misset -> -5 point og alle bolde kommer ind igen
         score -= 5
         if score <= 0 {
             score = 0; isPlaying = false; isGameOver = true
+            showCursorNow()
             for x in allBalls { x.physicsBody?.velocity = .zero; x.isHidden = true }
             gameOverLabel.text = "GAME OVER"; gameOverLabel.fontColor = .red; gameOverLabel.isHidden = false
         } else {
@@ -860,9 +977,79 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if abs(sin(angle)) < 0.35 { angle += sin(angle) >= 0 ? 0.35 : -0.35 }
         ball.physicsBody?.velocity = CGVector(dx: cos(angle)*speed, dy: sin(angle)*speed); playHitSound()
     }
+    // MARK: - Bolde der rammer hinanden
+    // Når 2 eller 3 bolde støder sammen: stor eksplosion, en ekstra bold og +100 point
+    var lastBallCollision: TimeInterval = 0
+    func isBonusBall(_ b: SKNode) -> Bool { (b.userData?["bonus"] as? Bool) ?? false }
+    func handleBallsCollided(at point: CGPoint, color: SKColor) {
+        guard isPlaying else { return }
+        let now = Date().timeIntervalSince1970
+        guard now - lastBallCollision > 1.0 else { return }     // ikke flere gange for samme sammenstød
+        lastBallCollision = now
+        // Stor eksplosion – flere farver
+        explode(at: point, color: color)
+        explode(at: point, color: .systemOrange)
+        explode(at: point, color: .white)
+        if soundOn { NSSound(named: "Glass")?.play() }
+        // +100 point (fast bonus)
+        score += 100
+        if score > highScore { highScore = score; saveHighScore() }
+        // Ekstra bold sendes ud fra stedet
+        let extra = SKShapeNode(circleOfRadius: 20)
+        configureBallPhysics(extra)
+        if extra.userData == nil { extra.userData = NSMutableDictionary() }
+        extra.userData?["bonus"] = true
+        extra.position = CGPoint(x: min(max(point.x, 40), size.width - 40), y: min(max(point.y, 120), size.height - 160))
+        addChild(extra)
+        extraBalls.append(extra)
+        launchBall(extra)
+        // Ballon med besked – forsvinder efter 3 sekunder, spillet kører videre
+        showBalloon("EXTRA 100 POINT!", at: point)
+        updateHUD()
+    }
+    func showBalloon(_ text: String, at point: CGPoint) {
+        let balloon = SKNode()
+        balloon.zPosition = 40
+        let label = SKLabelNode(fontNamed: "Menlo-Bold")
+        label.text = text; label.fontSize = 20; label.fontColor = .white
+        label.verticalAlignmentMode = .center
+        let w = label.frame.width + 40, h: CGFloat = 54
+        let body = SKShapeNode(ellipseOf: CGSize(width: w, height: h))
+        body.fillColor = .systemPink; body.strokeColor = .white; body.lineWidth = 3; body.glowWidth = 3
+        // lille "knude" og snor under ballonen
+        let knot = SKShapeNode(path: { let p = CGMutablePath()
+            p.addLines(between: [CGPoint(x: -6, y: -h/2 - 8), CGPoint(x: 6, y: -h/2 - 8), CGPoint(x: 0, y: -h/2 + 1)]); p.closeSubpath(); return p }())
+        knot.fillColor = .systemPink; knot.strokeColor = .white; knot.lineWidth = 1.5
+        let string = SKShapeNode(path: { let p = CGMutablePath()
+            p.move(to: CGPoint(x: 0, y: -h/2 - 8))
+            p.addCurve(to: CGPoint(x: 0, y: -h/2 - 60), control1: CGPoint(x: 14, y: -h/2 - 25), control2: CGPoint(x: -14, y: -h/2 - 42))
+            return p }())
+        string.strokeColor = .white; string.lineWidth = 1.5
+        let shine = SKShapeNode(ellipseOf: CGSize(width: w * 0.25, height: 10))
+        shine.fillColor = SKColor(white: 1, alpha: 0.45); shine.strokeColor = .clear
+        shine.position = CGPoint(x: -w * 0.22, y: h * 0.2)
+        balloon.addChild(string); balloon.addChild(body); balloon.addChild(knot); balloon.addChild(shine); balloon.addChild(label)
+        let x = min(max(point.x, w/2 + 10), size.width - w/2 - 10)
+        balloon.position = CGPoint(x: x, y: min(point.y + 40, size.height - 140))
+        balloon.setScale(0.2)
+        addChild(balloon)
+        let pop = SKAction.scale(to: 1.0, duration: 0.25); pop.timingMode = .easeOut
+        let floatUp = SKAction.moveBy(x: 0, y: 40, duration: 3.0)
+        let wobble = SKAction.repeatForever(.sequence([.rotate(toAngle: 0.06, duration: 0.4), .rotate(toAngle: -0.06, duration: 0.4)]))
+        balloon.run(wobble)
+        balloon.run(.sequence([pop, .group([floatUp, .sequence([.wait(forDuration: 2.5), .fadeOut(withDuration: 0.5)])]), .removeFromParent()]))
+    }
+
     func didBegin(_ contact: SKPhysicsContact) {
         if !isPlaying { return }
         let a = contact.bodyA, b = contact.bodyB
+        if a.categoryBitMask == PhysicsCategory.ball && b.categoryBitMask == PhysicsCategory.ball {
+            if let n1 = a.node as? SKShapeNode, let n2 = b.node as? SKShapeNode, !n1.isHidden, !n2.isHidden {
+                let point = contact.contactPoint
+                DispatchQueue.main.async { self.handleBallsCollided(at: point, color: self.skin(n1)?.fillColor ?? .systemYellow) }
+            }
+            return
+        }
         guard let ball = (a.categoryBitMask == PhysicsCategory.ball ? a.node : b.node) as? SKShapeNode else { return }
         if a.categoryBitMask == PhysicsCategory.wall || b.categoryBitMask == PhysicsCategory.wall {
             let wallNode = a.categoryBitMask == PhysicsCategory.wall ? a.node : b.node
@@ -932,7 +1119,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                             self.setupLevel(self.level + 1)
                             self.centerBalls()
                             for b in self.allBalls { b.isHidden = false }
-                            self.launchAllBalls(atSpeed: self.getStartSpeed()); self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
+                            self.launchAllBalls(atSpeed: self.currentSpeed()); self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
                         }
                     }
                 }
@@ -940,20 +1127,89 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     override func mouseDown(with event: NSEvent) {
+        // Klik mens man spiller (musen er låst) skal ikke gøre noget – pladen kører bare videre
+        if pointerLocked && isPlaying { return }
         let loc = event.location(in: self)
         let nodes = nodes(at: loc)
         for n in nodes {
             if n.name == "statusButton" || n.parent?.name == "statusButton" { handleStatusToggle(); return }
             if n.name == "speakerButton" || n.parent?.name == "speakerButton" || n.name == "speakerIcon" || n.parent?.name == "speakerIcon" { toggleSound(); return }
             if n.name == "resetButton" || n.parent?.name == "resetButton" { confirmResetAll(); return }
+            if n.name == "playerBox" || n === playerLabel || n.parent === playerBox { promptForPlayer(); return }
+            if n.name == "highBox" || n === highScoreLabel || n.parent === highBox { showHighScores(); return }
             if n.name == "levelBox" || n === levelLabel || n.parent === levelBox { promptForLevel(); return }
             if n.name == "speedBox" || n === speedLabel || n.parent === speedBox { promptForSpeed(); return }
         }
     }
     override func keyDown(with event: NSEvent) { if event.keyCode == 49 { handleStatusToggle() } }
+    // MARK: - Musepil
+    // Musepilen skjules mens man spiller og musen er over spillet.
+    // Den vises igen ved pause, game over, dialoger, eller når musen er uden for vinduet.
+    var cursorHidden = false
+    // Mens man spiller, "låses" musen til spillet: pilen er skjult og kan ikke forlade vinduet,
+    // så man ikke ved et uheld rammer andre vinduer, Stage Manager, hjørner eller lukker spillet.
+    // Pladen styres så af musens bevægelse (delta) i stedet for dens position.
+    var pointerLocked = false
+    func updateCursor() {
+        var shouldLock = false
+        if isPlaying, NSApp.isActive, let view = self.view, let window = view.window, window.isKeyWindow {
+            if pointerLocked {
+                shouldLock = true
+            } else {
+                let p = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+                shouldLock = view.bounds.contains(p)
+            }
+        }
+        if shouldLock && !pointerLocked { lockPointer() }
+        else if !shouldLock && pointerLocked { unlockPointer() }
+    }
+    func lockPointer() {
+        if !cursorHidden { NSCursor.hide(); cursorHidden = true }
+        CGAssociateMouseAndMouseCursorPosition(0)
+        pointerLocked = true
+    }
+    func unlockPointer() {
+        guard pointerLocked else { return }
+        pointerLocked = false
+        CGAssociateMouseAndMouseCursorPosition(1)
+        // Sæt musepilen der hvor pladen er, så den ikke "hopper"
+        if let view = self.view, let window = view.window, let screen = window.screen ?? NSScreen.screens.first {
+            let inView = convertPoint(toView: paddle.position)
+            let inWindow = view.convert(inView, to: nil)
+            let onScreen = window.convertPoint(toScreen: inWindow)
+            let mainH = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+            CGWarpMouseCursorPosition(CGPoint(x: onScreen.x, y: mainH - onScreen.y))
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
+        if cursorHidden { NSCursor.unhide(); cursorHidden = false }
+    }
+    func showCursorNow() { unlockPointer(); if cursorHidden { NSCursor.unhide(); cursorHidden = false } }
+    override func willMove(from view: SKView) {
+        showCursorNow()
+        if let m = mouseMonitor { NSEvent.removeMonitor(m); mouseMonitor = nil }
+        super.willMove(from: view)
+    }
+    func movePaddle(by dx: CGFloat) {
+        let half = paddle.size.width / 2
+        paddle.position.x = min(max(paddle.position.x + dx, half), size.width - half)
+    }
+    // Fanger ALLE musebevægelser – også mens en museknap holdes nede (klik/træk),
+    // så pladen aldrig stopper fordi man klikker.
+    var mouseMonitor: Any?
+    func installMouseMonitor() {
+        guard mouseMonitor == nil else { return }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]) { [weak self] event in
+            MainActor.assumeIsolated {
+                if let self, self.pointerLocked, self.isPlaying { self.movePaddle(by: event.deltaX) }
+            }
+            return event
+        }
+    }
+
     override func update(_ currentTime: TimeInterval) {
+        updateCursor()
         if !isPlaying { return }
-        if let view = self.view, let window = view.window {
+        if !pointerLocked, let view = self.view, let window = view.window {
             let mW = window.mouseLocationOutsideOfEventStream
             let mV = view.convert(mW, from: nil)
             // Pladen må aldrig komme uden for skærmen – hverken til højre eller venstre
@@ -976,5 +1232,58 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let livePct = Int((liveSpeed / baseSpeed * 100).rounded())
         let speedText = "Speed: \(livePct)%"
         if speedLabel.text != speedText { speedLabel.text = speedText }
+    }
+}
+
+
+// MARK: - Indtastnings-vindue
+// Et rigtigt vindue (ikke NSAlert), så tekstfeltet altid får tastatur-fokus.
+// På macOS 26 kunne NSAlert-vinduet ikke blive "key", så man kunne ikke skrive i feltet.
+final class InputDialog: NSObject {
+    private var window: NSWindow!
+    @objc private func okPressed(_ sender: Any?) { NSApp.stopModal(withCode: .OK) }
+    @objc private func cancelPressed(_ sender: Any?) { NSApp.stopModal(withCode: .cancel) }
+
+    /// Viser dialogen og returnerer true hvis der blev trykket OK (eller Enter)
+    static func run(title: String, message: String, field: NSTextField, showCancel: Bool = true) -> Bool {
+        let d = InputDialog()
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 170),
+                         styleMask: [.titled], backing: .buffered, defer: false)
+        w.title = title
+        w.isReleasedWhenClosed = false
+        w.level = .modalPanel
+        d.window = w
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 170))
+
+        let label = NSTextField(wrappingLabelWithString: message)
+        label.frame = NSRect(x: 20, y: 90, width: 340, height: 60)
+        label.font = NSFont.systemFont(ofSize: 13)
+        content.addSubview(label)
+
+        field.frame = NSRect(x: 20, y: 58, width: 340, height: 26)
+        field.font = NSFont.systemFont(ofSize: 15)
+        content.addSubview(field)
+
+        let ok = NSButton(title: "OK", target: d, action: #selector(okPressed(_:)))
+        ok.frame = NSRect(x: 270, y: 14, width: 90, height: 32)
+        ok.bezelStyle = .rounded
+        ok.keyEquivalent = "\r"
+        content.addSubview(ok)
+        if showCancel {
+            let cancel = NSButton(title: "Cancel", target: d, action: #selector(cancelPressed(_:)))
+            cancel.frame = NSRect(x: 172, y: 14, width: 90, height: 32)
+            cancel.bezelStyle = .rounded
+            cancel.keyEquivalent = "\u{1b}"
+            content.addSubview(cancel)
+        }
+        w.contentView = content
+        w.center()
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+        w.makeFirstResponder(field)
+        field.selectText(nil)
+        let result = NSApp.runModal(for: w)
+        w.orderOut(nil)
+        return result == .OK
     }
 }
