@@ -205,11 +205,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         • Speed +5% per 10 points above 25
 
         BRICKS:
-        • Levels 1-2: classic bricks
-        • Level 3: triangles pointing up/down
-        • Level 4+: mixed rows of triangles and bricks
-        • Levels 5, 10, 15 …: random vertical bricks
-        • Hit bricks explode and tumble down changing colour
+        • Every level is built at random – a new pattern every time
+        • Row types: classic bricks, ▲▼ triangles, ▶◀ triangles,
+          ◆ diamonds (45° bricks with triangles above and below)
+          and ⬢ hexagons (honeycomb)
+        • Some levels have random standing bricks
+        • Hit bricks explode and tumble down as 3D blocks
 
         PLAYERS:
         • Click the player box (👤) or Game > Change Player (Cmd+P)

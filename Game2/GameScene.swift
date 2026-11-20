@@ -412,25 +412,67 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         gameOverLabel?.position = CGPoint(x: size.width/2, y: size.height/2 + 60)
     }
     
-    // MARK: - Trekant-klodser
-    // Level 1-2: almindelige firkanter.
-    // Level 3:   trekanter skiftevis spids OP/NED (lodret), der griber ind i hinanden.
-    // Fra level 4: BLANDET – rækkerne skifter mellem op/ned-trekanter,
-    //              højre/venstre-trekanter og firkanter (rækkefølgen skifter med level).
-    enum RowMode { case squares, upDown, leftRight }
+    // MARK: - Klodstyper og tilfældige levels
+    // ALLE levels bygges tilfældigt: hver række får en tilfældig type
+    // (aldrig samme type to gange i træk), og ca. hvert 6. level fra level 3 er et
+    // "lodret" level med stående klodser. Nyt mønster hver gang et level startes.
+    //   squares   – almindelige firkanter
+    //   upDown    – trekanter ▲▼ der griber ind i hinanden
+    //   leftRight – trekanter ▶◀ spejlet om midten
+    //   diamonds  – firkanter drejet 45° ◆ med ▼-trekanter foroven og ▲-trekanter forneden,
+    //               så det hele passer sammen som en mosaik
+    //   hexagons  – sekskanter ⬢ som en bikage (forskudt hvis to rækker følger efter hinanden)
+    enum RowMode: CaseIterable { case squares, upDown, leftRight, diamonds, hexagons }
+    var levelRowModes: [RowMode] = []
+    var levelIsVertical = false
+
+    /// Vælger et nyt tilfældigt layout til et level
+    func randomizeLayout(for lvl: Int, rows: Int) {
+        levelIsVertical = lvl >= 3 && Int.random(in: 0..<6) == 0
+        var modes: [RowMode] = []
+        for _ in 0..<max(rows, 7) {
+            var choice = RowMode.allCases.randomElement() ?? .squares
+            while let last = modes.last, choice == last { choice = RowMode.allCases.randomElement() ?? .squares }
+            modes.append(choice)
+        }
+        levelRowModes = modes
+    }
     func rowMode(level lvl: Int, row r: Int) -> RowMode {
-        if lvl < 3 { return .squares }
-        if lvl == 3 { return .upDown }
-        let mix: [RowMode] = [.upDown, .leftRight, .squares]
-        return mix[(r + lvl) % mix.count]
+        if levelRowModes.isEmpty { randomizeLayout(for: lvl, rows: 7) }
+        return levelRowModes[r % levelRowModes.count]
     }
     func rowHeight(_ mode: RowMode) -> CGFloat {
         switch mode {
         case .squares: return 28
         case .upDown: return 36
         case .leftRight: return 42
+        case .diamonds: return 46
+        case .hexagons: return 42
         }
     }
+    /// Krymper en polygon lidt mod midten, så der bliver en smal fuge mellem klodserne
+    func shrink(_ pts: [CGPoint], by gap: CGFloat) -> [CGPoint] {
+        let cx = pts.map(\.x).reduce(0, +) / CGFloat(pts.count)
+        let cy = pts.map(\.y).reduce(0, +) / CGFloat(pts.count)
+        return pts.map { p in
+            let dx = p.x - cx, dy = p.y - cy
+            let len = max(sqrt(dx * dx + dy * dy), 0.001)
+            let k = max(0.5, (len - gap) / len)
+            return CGPoint(x: cx + dx * k, y: cy + dy * k)
+        }
+    }
+    /// Lægger en polygon-klods ind: punkterne gives i scenens koordinater (mod uret)
+    func addPolygonBrick(_ worldPts: [CGPoint], color: SKColor) {
+        let pts = shrink(worldPts, by: 2.5)
+        let minX = pts.map(\.x).min() ?? 0, maxX = pts.map(\.x).max() ?? 0
+        let minY = pts.map(\.y).min() ?? 0, maxY = pts.map(\.y).max() ?? 0
+        let center = CGPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
+        let local = pts.map { CGPoint(x: $0.x - center.x, y: $0.y - center.y) }
+        let node = makeTriangleBrick(points: local, color: color)
+        node.position = center
+        addChild(node)
+    }
+    var hexRowParity = 0
     // NB: punkterne skal være mod uret (counter-clockwise), ellers fejler SKPhysicsBody(polygonFrom:)
     func makeTriangleBrick(points: [CGPoint], color: SKColor) -> SKShapeNode {
         let path = CGMutablePath()
@@ -489,6 +531,43 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 tri.position = CGPoint(x: startX + w/2 + CGFloat(i) * step, y: y)
                 addChild(tri)
             }
+        case .diamonds:
+            // ◆ 8 diamanter side om side, med trekanter i hullerne foroven (▼) og forneden (▲)
+            let a: CGFloat = totalW / 16          // halv bredde (ca. 40)
+            let b: CGFloat = 20                   // halv højde
+            let dark = color.blended(withFraction: 0.35, of: .black) ?? color
+            let light = color.blended(withFraction: 0.25, of: .white) ?? color
+            for i in 0..<8 {
+                let cx = startX + a + CGFloat(i) * 2 * a
+                addPolygonBrick([CGPoint(x: cx, y: y - b), CGPoint(x: cx + a, y: y),
+                                 CGPoint(x: cx, y: y + b), CGPoint(x: cx - a, y: y)], color: color)
+                if i < 7 {
+                    let x0 = cx, x1 = cx + 2 * a, xm = cx + a
+                    // ▼ foroven i hullet mellem to diamanter
+                    addPolygonBrick([CGPoint(x: x0, y: y + b), CGPoint(x: xm, y: y), CGPoint(x: x1, y: y + b)], color: dark)
+                    // ▲ forneden i hullet
+                    addPolygonBrick([CGPoint(x: x0, y: y - b), CGPoint(x: x1, y: y - b), CGPoint(x: xm, y: y)], color: light)
+                }
+            }
+        case .hexagons:
+            // ⬢ sekskanter med spidsen opad; forskydes en halv plads hver anden række (bikage)
+            let r: CGFloat = 22
+            let hexW = sqrt(3) * r
+            let step = hexW + 3
+            let count = Int((totalW - hexW) / step) + 1
+            let used = CGFloat(count - 1) * step + hexW
+            var x0 = startX + (totalW - used) / 2 + hexW / 2
+            if hexRowParity % 2 == 1 { x0 += step / 2 }
+            let n = hexRowParity % 2 == 1 ? count - 1 : count
+            for i in 0..<n {
+                let cx = x0 + CGFloat(i) * step
+                let pts = (0..<6).map { k -> CGPoint in
+                    let ang = (CGFloat(k) * 60 - 90) * .pi / 180    // stigende vinkel = mod uret
+                    return CGPoint(x: cx + cos(ang) * r, y: y + sin(ang) * r)
+                }
+                let shade = i % 2 == 0 ? color : (color.blended(withFraction: 0.2, of: .white) ?? color)
+                addPolygonBrick(pts, color: shade)
+            }
         case .leftRight:
             // Spids mod højre/venstre, spejlet om midten ▶◀
             let w: CGFloat = 70, h: CGFloat = 36
@@ -507,8 +586,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     // MARK: - Lodrette klodser (random)
-    // Level 5, 10, 15 ...: stående klodser placeret tilfældigt – nyt mønster hver gang
-    func isVerticalLevel(_ lvl: Int) -> Bool { lvl >= 5 && lvl % 5 == 0 }
+    // Ca. hvert 6. level (fra level 3): stående klodser placeret tilfældigt – nyt mønster hver gang
     func createVerticalBricks(rows: Int) {
         for n in children where n.name == "brick" { n.removeFromParent() }
         let brickW: CGFloat = 22, brickH: CGFloat = 60
@@ -540,7 +618,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     func createBricks(rows: Int) {
-        if isVerticalLevel(level) { createVerticalBricks(rows: rows); return }
+        if levelIsVertical { createVerticalBricks(rows: rows); return }
+        hexRowParity = 0
         for n in children where n.name == "brick" { n.removeFromParent() }
         let brickW: CGFloat = 75, pad: CGFloat = 6
         let totalW = CGFloat(bricksPerRow)*brickW + CGFloat(bricksPerRow-1)*pad
@@ -565,7 +644,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let rowColor = brickColors[idx]
             let mode = rowMode(level: level, row: r)
             // række-afstand: halvdelen af denne + halvdelen af forrige rækkes højde
-            if let lm = lastMode { y -= (rowHeight(lm) + rowHeight(mode)) / 2 }
+            if let lm = lastMode {
+                // to sekskant-rækker efter hinanden lægges tættere, som en bikage
+                let tight: CGFloat = (lm == .hexagons && mode == .hexagons) ? 8 : 0
+                y -= (rowHeight(lm) + rowHeight(mode)) / 2 - tight
+            }
+            hexRowParity = (lastMode == .hexagons && mode == .hexagons) ? hexRowParity + 1 : 0
             lastMode = mode
             addBrickRow(row: r, y: y, color: rowColor, mode: mode, startX: startX, totalW: totalW)
         }
@@ -576,6 +660,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         UserDefaults.standard.set(level, forKey: "CurrentLevel")
         let visible = min(lvl, maxVisibleRows)
         hiddenRowsRemaining = lvl - visible
+        randomizeLayout(for: lvl, rows: maxVisibleRows)   // nyt tilfældigt layout hver gang
         createBricks(rows: visible)
         configureBallsForLevel()
         updateHUD()
