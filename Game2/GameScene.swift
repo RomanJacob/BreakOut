@@ -454,6 +454,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let hi = SKShapeNode(path: hiPath)
         hi.fillColor = SKColor(white: 1, alpha: 0.25); hi.strokeColor = .clear; hi.zPosition = 1
         tri.addChild(hi)
+        tri.userData = NSMutableDictionary(dictionary: ["pts": points.map { NSValue(point: $0) }])
         tri.physicsBody = SKPhysicsBody(polygonFrom: path)
         tri.physicsBody?.isDynamic = false
         tri.physicsBody?.categoryBitMask = PhysicsCategory.brick
@@ -870,78 +871,140 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let hitColor = (brick as? SKShapeNode)?.fillColor ?? (brick as? SKSpriteNode)?.color ?? .white
         explode(at: brick.position, color: hitColor)
 
+        // Find klodsens form (hjørnepunkter mod uret omkring midten)
+        var pts: [CGPoint] = []
+        var color: SKColor = hitColor
         if let tri = brick as? SKShapeNode {
-            // Trekant falder, roterer og skifter farve gennem regnbuen
-            tri.name = nil; tri.physicsBody = nil; tri.zPosition = 10
-            let startIdx = brickColors.firstIndex(where: { $0.isEqual(tri.fillColor) }) ?? Int.random(in: 0..<brickColors.count)
-            let total: CGFloat = 1.8
-            let colorCycle = SKAction.customAction(withDuration: TimeInterval(total)) { [colors = brickColors] node, elapsed in
-                guard let shape = node as? SKShapeNode else { return }
-                let pos = elapsed / total * CGFloat(colors.count) * 1.5
-                let i = Int(pos) % colors.count
-                let frac = pos - floor(pos)
-                let c1 = colors[(startIdx + i) % colors.count]
-                let c2 = colors[(startIdx + i + 1) % colors.count]
-                shape.fillColor = c1.blended(withFraction: frac, of: c2) ?? c1
+            if let stored = tri.userData?["pts"] as? [NSValue] { pts = stored.map { $0.pointValue } }
+            if pts.count < 3 {
+                let f = tri.frame.offsetBy(dx: -tri.position.x, dy: -tri.position.y)
+                pts = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.midX, y: f.maxY)]
             }
-            let fall = SKAction.group([
-                .moveBy(x: CGFloat.random(in: -80...80), y: -(tri.position.y + 60), duration: TimeInterval(total)),
-                .rotate(byAngle: CGFloat.random(in: 8...14) * (Bool.random() ? 1 : -1), duration: TimeInterval(total)),
-                .sequence([.wait(forDuration: 0.9), .fadeOut(withDuration: 0.9)]),
-                .scale(to: 0.4, duration: TimeInterval(total))
-            ])
-            fall.timingMode = .easeIn
-            tri.run(.sequence([.group([fall, colorCycle]), .removeFromParent()]))
-            return
+            color = tri.fillColor
+        } else if let spr = brick as? SKSpriteNode {
+            let w = spr.size.width / 2, h = spr.size.height / 2
+            pts = [CGPoint(x: -w, y: -h), CGPoint(x: w, y: -h), CGPoint(x: w, y: h), CGPoint(x: -w, y: h)]
+            color = spr.color
+        } else {
+            brick.removeFromParent(); return
         }
-        guard let brickSprite = brick as? SKSpriteNode else { brick.removeFromParent(); return }
+        let pos = brick.position
         brick.name = nil
-        let originalColor = brickSprite.color
-        let originalSize = brickSprite.size
-        let currentIdx = brickColors.firstIndex(where: { $0.isEqual(originalColor) }) ?? 0
-        let nextLayerColor: SKColor
-        if level <= 1 { nextLayerColor = originalColor }
-        else { nextLayerColor = brickColors[(currentIdx + 1) % brickColors.count] }
-        let nextTopColor = nextLayerColor.blended(withFraction: 0.35, of: .white) ?? nextLayerColor
-        let nextSideColor = nextLayerColor.blended(withFraction: 0.35, of: .black) ?? nextLayerColor
-        let container = SKNode(); container.position = brick.position; container.zPosition = 10; addChild(container); brick.removeFromParent()
-        let shadow = SKShapeNode(ellipseOf: CGSize(width: originalSize.width*0.9, height: 12))
-        shadow.fillColor = .black; shadow.strokeColor = .clear; shadow.alpha = 0.35; shadow.position = CGPoint(x: 0, y: -size.height/2 + 80); shadow.zPosition = -1; container.addChild(shadow)
-        let front = SKSpriteNode(color: originalColor, size: originalSize); front.zPosition = 1; container.addChild(front)
-        let topEdge = SKSpriteNode(color: originalColor.blended(withFraction: 0.35, of: .white) ?? originalColor, size: CGSize(width: originalSize.width, height: 6))
-        topEdge.position = CGPoint(x: 0, y: originalSize.height/2); topEdge.zPosition = 0; container.addChild(topEdge)
-        let sideEdge = SKSpriteNode(color: originalColor.blended(withFraction: 0.35, of: .black) ?? originalColor, size: CGSize(width: 6, height: originalSize.height))
-        sideEdge.position = CGPoint(x: originalSize.width/2, y: 0); sideEdge.zPosition = 0; container.addChild(sideEdge)
-        container.physicsBody = SKPhysicsBody(rectangleOf: originalSize)
-        container.physicsBody?.isDynamic = true; container.physicsBody?.collisionBitMask = 0; container.physicsBody?.categoryBitMask = 0; container.physicsBody?.contactTestBitMask = 0
-        container.physicsBody?.velocity = CGVector(dx: CGFloat.random(in: -120.0...120.0), dy: CGFloat.random(in: -380.0...(-280.0)))
-        container.physicsBody?.angularVelocity = CGFloat.random(in: 4.0...9.0) * (Bool.random() ? 1 : -1); container.physicsBody?.linearDamping = 0.2
-        let duration: CGFloat = 2.4
-        let tumble3D = SKAction.customAction(withDuration: TimeInterval(duration)) { node, elapsed in
-            let t = elapsed / CGFloat(duration)
-            let spinY = t * .pi * 6.0; let xScale = cos(spinY)
-            let spinX = t * .pi * 3.0; let yScale = 0.55 + 0.45 * abs(cos(spinX))
-            front.xScale = xScale; front.yScale = yScale; topEdge.xScale = xScale
-            let morphedColor = originalColor.blended(withFraction: t, of: nextLayerColor) ?? originalColor
-            let morphedTop = (originalColor.blended(withFraction: 0.35, of: .white) ?? originalColor).blended(withFraction: t, of: nextTopColor) ?? nextTopColor
-            let morphedSide = (originalColor.blended(withFraction: 0.35, of: .black) ?? originalColor).blended(withFraction: t, of: nextSideColor) ?? nextSideColor
-            let isBackface = xScale < 0
-            if isBackface {
-                front.color = morphedColor.blended(withFraction: 0.35, of: .black) ?? morphedColor
-                topEdge.isHidden = true; sideEdge.isHidden = false; sideEdge.color = morphedSide
-            } else {
-                front.color = morphedColor; topEdge.color = morphedTop; sideEdge.color = morphedSide
-                topEdge.isHidden = false; sideEdge.isHidden = xScale < 0.4
-            }
-            let edgeOn = abs(xScale) < 0.25; topEdge.alpha = edgeOn ? 1.0 : 0.85; sideEdge.alpha = edgeOn ? 1.0 : 0.7
-            shadow.xScale = 1.0 - t*0.5; shadow.alpha = 0.35 * (1.0 - t)
-        }
-        let fadeAndShrink = SKAction.group([
-            SKAction.sequence([.wait(forDuration: 1.4), .fadeOut(withDuration: 1.0)]),
-            SKAction.sequence([.wait(forDuration: 0.6), .scale(to: 0.35, duration: 1.8)])
-        ])
-        container.run(.sequence([.group([tumble3D, fadeAndShrink]), .removeFromParent()]))
+        brick.removeFromParent()
+        fall3D(points: pts, color: color, at: pos)
     }
+
+    // MARK: - Ægte 3D-fald
+    // Klodsen bliver til en tyk 3D-blok (forside, bagside og sider), der tumler rundt om
+    // alle tre akser, belyses fra venstre-top, kommer lidt "ud mod skærmen", skifter farve
+    // gennem regnbuen og kaster en skygge, mens den falder.
+    struct V3 { var x: CGFloat; var y: CGFloat; var z: CGFloat }
+
+    func fall3D(points pts: [CGPoint], color: SKColor, at pos: CGPoint) {
+        let n = pts.count
+        let depth: CGFloat = 16
+        let life: CGFloat = 2.0
+        let container = SKNode()
+        container.position = pos; container.zPosition = 10
+        addChild(container)
+        var faces: [SKShapeNode] = []
+        for _ in 0..<(n + 2) {
+            let f = SKShapeNode()
+            f.lineWidth = 1; f.isAntialiased = true
+            container.addChild(f)
+            faces.append(f)
+        }
+        let width = (pts.map(\.x).max() ?? 20) - (pts.map(\.x).min() ?? -20)
+        let shadow = SKShapeNode(ellipseOf: CGSize(width: width, height: 10))
+        shadow.fillColor = .black; shadow.strokeColor = .clear; shadow.alpha = 0.3; shadow.zPosition = 5
+        shadow.position = CGPoint(x: pos.x, y: 70)
+        addChild(shadow)
+
+        // 3D-hjørner: forside (z+) og bagside (z-)
+        let front = pts.map { V3(x: $0.x, y: $0.y, z: depth / 2) }
+        let back = pts.map { V3(x: $0.x, y: $0.y, z: -depth / 2) }
+        // flader: forside, bagside (omvendt rækkefølge) og en side pr. kant – alle mod uret set udefra
+        var faceIdx: [[(Bool, Int)]] = []
+        faceIdx.append((0..<n).map { (true, $0) })
+        faceIdx.append((0..<n).reversed().map { (false, $0) })
+        for i in 0..<n { faceIdx.append([(true, i), (false, i), (false, (i + 1) % n), (true, (i + 1) % n)]) }
+
+        let sign: CGFloat = Bool.random() ? 1 : -1
+        let v0x = CGFloat.random(in: -140...140)
+        let v0y = CGFloat.random(in: 120...260)
+        let g: CGFloat = -1100
+        let spinX = CGFloat.random(in: 6...10) * sign
+        let spinY = CGFloat.random(in: 8...13) * (Bool.random() ? 1 : -1)
+        let spinZ = CGFloat.random(in: -3...3)
+        let startIdx = brickColors.firstIndex(where: { $0.isEqual(color) }) ?? Int.random(in: 0..<brickColors.count)
+        let colors = brickColors
+        let light = { () -> V3 in let l = V3(x: -0.45, y: 0.6, z: 0.7); let m = sqrt(l.x*l.x + l.y*l.y + l.z*l.z); return V3(x: l.x/m, y: l.y/m, z: l.z/m) }()
+        let focal: CGFloat = 650
+
+        let animate = SKAction.customAction(withDuration: TimeInterval(life)) { node, elapsed in
+            let t = elapsed
+            let k = min(t / life, 1)
+            // bevægelse: lille hop op og så ned med tyngdekraft
+            let x = pos.x + v0x * t
+            let y = pos.y + v0y * t + 0.5 * g * t * t
+            node.position = CGPoint(x: x, y: y)
+            // farve gennem regnbuen, startende med klodsens egen farve
+            let cpos = k * CGFloat(colors.count) * 1.5
+            let ci = Int(cpos)
+            let c1 = ci == 0 ? color : colors[(startIdx + ci) % colors.count]
+            let c2 = colors[(startIdx + ci + 1) % colors.count]
+            let base = c1.blended(withFraction: cpos - floor(cpos), of: c2) ?? c1
+            // "ud mod skærmen" og så mindre
+            let scale = (1 + 0.3 * sin(k * .pi)) * (1 - 0.45 * k)
+            let ax = spinX * t, ay = spinY * t, az = spinZ * t
+            let (sx, cx) = (sin(ax), cos(ax)), (sy, cy) = (sin(ay), cos(ay)), (sz, cz) = (sin(az), cos(az))
+            func rot(_ v: V3) -> V3 {
+                // rotation om Y, så X, så Z
+                let x1 = v.x * cy + v.z * sy, z1 = -v.x * sy + v.z * cy
+                let y2 = v.y * cx - z1 * sx, z2 = v.y * sx + z1 * cx
+                let x3 = x1 * cz - y2 * sz, y3 = x1 * sz + y2 * cz
+                return V3(x: x3 * scale, y: y3 * scale, z: z2 * scale)
+            }
+            let rf = front.map(rot), rb = back.map(rot)
+            func proj(_ v: V3) -> CGPoint { let p = focal / (focal - v.z); return CGPoint(x: v.x * p, y: v.y * p) }
+            var order: [(z: CGFloat, i: Int)] = []
+            for (fi, idx) in faceIdx.enumerated() {
+                let vs = idx.map { $0.0 ? rf[$0.1] : rb[$0.1] }
+                let p2 = vs.map(proj)
+                // synlig hvis fladen vender mod os (mod uret på skærmen)
+                var area: CGFloat = 0
+                for j in 0..<p2.count { let a = p2[j], b = p2[(j + 1) % p2.count]; area += a.x * b.y - b.x * a.y }
+                let face = faces[fi]
+                if area <= 0.5 { face.isHidden = true; continue }
+                face.isHidden = false
+                let path = CGMutablePath(); path.addLines(between: p2); path.closeSubpath()
+                face.path = path
+                // lys: normal · lysretning
+                let e1 = V3(x: vs[1].x - vs[0].x, y: vs[1].y - vs[0].y, z: vs[1].z - vs[0].z)
+                let e2 = V3(x: vs[2].x - vs[0].x, y: vs[2].y - vs[0].y, z: vs[2].z - vs[0].z)
+                var nrm = V3(x: e1.y * e2.z - e1.z * e2.y, y: e1.z * e2.x - e1.x * e2.z, z: e1.x * e2.y - e1.y * e2.x)
+                let m = max(sqrt(nrm.x * nrm.x + nrm.y * nrm.y + nrm.z * nrm.z), 0.0001)
+                nrm = V3(x: nrm.x / m, y: nrm.y / m, z: nrm.z / m)
+                let d = max(0, nrm.x * light.x + nrm.y * light.y + nrm.z * light.z)
+                var c = base.blended(withFraction: 0.65 * (1 - d), of: .black) ?? base
+                if d > 0.85 { c = c.blended(withFraction: (d - 0.85) * 2.5, of: .white) ?? c }   // glans
+                face.fillColor = c
+                face.strokeColor = (base.blended(withFraction: 0.6, of: .black) ?? .black).withAlphaComponent(0.8)
+                let avgZ = vs.reduce(0) { $0 + $1.z } / CGFloat(vs.count)
+                order.append((avgZ, fi))
+            }
+            for (rank, o) in order.sorted(by: { $0.z < $1.z }).enumerated() { faces[o.i].zPosition = CGFloat(rank) }
+            node.alpha = k < 0.6 ? 1 : max(0, 1 - (k - 0.6) / 0.4)
+            // skygge på "gulvet": bliver mindre og svagere jo højere oppe klodsen er
+            let height = max(0, y - 70)
+            shadow.position.x = x
+            shadow.xScale = max(0.2, scale * (1 - min(height / 900, 0.7)))
+            shadow.alpha = 0.3 * node.alpha * (1 - min(height / 900, 0.8))
+        }
+        container.run(.sequence([animate, .removeFromParent()]))
+        shadow.run(.sequence([.wait(forDuration: TimeInterval(life)), .removeFromParent()]))
+    }
+
     func handleMiss(_ b: SKShapeNode) {
         playMissSound()
         if isBonusBall(b) {
@@ -976,7 +1039,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if abs(sin(angle)) < 0.35 { angle += sin(angle) >= 0 ? 0.35 : -0.35 }
         ball.physicsBody?.velocity = CGVector(dx: cos(angle)*speed, dy: sin(angle)*speed); playHitSound()
     }
-    // MARK: - Elastisk oval plade (30 sek. efter et bold-sammenstød)
+    // MARK: - Elastisk oval plade (20 sek. efter et bold-sammenstød)
     // Pladen bliver oval, skifter tilfældigt farve og "vugger" elastisk når den rammer bolden.
     var elasticRemaining: TimeInterval = 0
     var lastFrameTime: TimeInterval = 0
@@ -1010,9 +1073,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     func activateElasticPaddle() {
         let wasActive = elasticRemaining > 0
-        elasticRemaining = 30
-        floatingText("ELASTIC PADDLE 30 SEC!", at: CGPoint(x: paddle.position.x, y: paddle.position.y + 40), color: .systemPink)
-        if wasActive { return }   // allerede aktiv: tiden starter bare forfra
+        elasticRemaining = 20
+        floatingText("ELASTIC PADDLE 20 SEC!", at: CGPoint(x: paddle.position.x, y: paddle.position.y + 40), color: .systemPink)
+        if wasActive { return }   // allerede aktiv: de 20 sek. starter forfra
 
         originalPaddleTexture = paddle.texture
         paddle.texture = nil
