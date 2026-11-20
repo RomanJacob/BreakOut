@@ -1090,8 +1090,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         shadow.run(.sequence([.wait(forDuration: TimeInterval(life)), .removeFromParent()]))
     }
 
+    /// Hver gang en bold misses: farten (Speed %) går 10 ned – dog aldrig under 50%
+    func slowDownAfterMiss() {
+        let nowPct = currentSpeed() / baseSpeed * 100
+        guard nowPct > 50 else { return }
+        let wanted = max(50, nowPct - 10)
+        // Samme regnemåde som "Change Speed": level- og point-tillæg regnes fra
+        let factor = currentSpeed() / max(getStartSpeed(), 0.001)
+        let ns = max(10, Int((wanted / factor).rounded()))
+        startSpeedPercent = ns
+        UserDefaults.standard.set(ns, forKey: "StartSpeedPercent")
+        applyNewSpeedToBalls()
+    }
     func handleMiss(_ b: SKShapeNode) {
         playMissSound()
+        slowDownAfterMiss()
         if isBonusBall(b) {
             // Ekstra-bolde forsvinder bare, når de misses
             b.removeFromParent()
