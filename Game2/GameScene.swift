@@ -409,7 +409,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         for (n, w) in zip(left, wl) { n.setScale(k); n.position = CGPoint(x: x, y: y); x += (w + gap) * k }
         x = size.width - margin
         for (n, w) in zip(right.reversed(), wr.reversed()) { n.setScale(k); x -= w * k; n.position = CGPoint(x: x, y: y); x -= gap * k }
-        gameOverLabel?.position = CGPoint(x: size.width/2, y: size.height/2 + 60)
+        gameOverLabel?.position = CGPoint(x: size.width/2, y: size.height/2 - 60)  // under bolden
     }
     
     // MARK: - Klodstyper og tilfældige levels

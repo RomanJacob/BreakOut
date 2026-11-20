@@ -175,9 +175,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     
     @objc func showHelp() {
+        // Sæt spillet på pause først – så bliver musepilen låst op og vist igen,
+        // ellers er pilen skjult og fanget i spillet og man kan ikke klikke OK
+        if let scene = getGameScene() {
+            if scene.isPlaying { scene.handleStatusToggle() }
+            scene.showCursorNow()
+        }
         let alert = NSAlert()
         alert.messageText = "Roman's Breakout - Help"
-        alert.informativeText = """
+        alert.informativeText = "Scroll to read everything. Press Return or click OK to close."
+        let helpText = """
         HOW TO PLAY:
         • Move the mouse to move the paddle
         • A ball must hit the paddle before it can break bricks
@@ -235,12 +242,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         Created by Roman Dogonowski, October–November 2026
         """
+        // Hjælpeteksten i en rulle-boks med fast højde, så OK-knappen altid er synlig på skærmen
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 470, height: 380))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: scroll.contentSize.height))
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.font = NSFont.systemFont(ofSize: 12)
+        textView.textContainerInset = NSSize(width: 6, height: 6)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.string = helpText
+        scroll.documentView = textView
+        alert.accessoryView = scroll
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
     
     @objc func showDisplayInfo() {
+        if let scene = getGameScene() {
+            if scene.isPlaying { scene.handleStatusToggle() }
+            scene.showCursorNow()
+        }
         let alert = NSAlert()
         alert.messageText = "Display Info"
         alert.informativeText = displayInfo() + "\nWindow: \(Int(window?.frame.width ?? 0))x\(Int(window?.frame.height ?? 0)) pt"
