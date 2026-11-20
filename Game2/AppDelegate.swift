@@ -194,6 +194,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
           and changes colour on every paddle hit
         • If 2 or 3 balls crash into each other: BIG explosion,
           an EXTRA ball and +100 points!
+        • …and the paddle turns into an ELASTIC OVAL for 30 seconds:
+          it wobbles when it hits the ball and changes colour
 
         POINTS:
         • +1 per paddle hit, +2 per brick

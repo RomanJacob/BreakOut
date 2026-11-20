@@ -104,12 +104,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         paddle.texture = bevelTexture(size: paddle.size, color: SKColor(calibratedRed: 0.72, green: 0.85, blue: 1.0, alpha: 1), radius: 10)
         let paddleShadow = SKSpriteNode(color: .black, size: paddle.size)
         paddleShadow.alpha = 0.4; paddleShadow.position = CGPoint(x: 4, y: -5); paddleShadow.zPosition = -1
+        paddleShadow.name = "paddleShadow"
         paddle.addChild(paddleShadow)
-        paddle.physicsBody = SKPhysicsBody(rectangleOf: paddle.size)
-        paddle.physicsBody?.categoryBitMask = PhysicsCategory.paddle
-        paddle.physicsBody?.contactTestBitMask = PhysicsCategory.ball
-        paddle.physicsBody?.collisionBitMask = PhysicsCategory.ball
-        paddle.physicsBody?.isDynamic = false
+        setPaddleBody(SKPhysicsBody(rectangleOf: paddle.size))
         paddle.position = CGPoint(x: size.width/2, y: 80)
         addChild(paddle)
         
@@ -634,6 +631,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     func prepareGame() {
         isPlaying = false; gamePaused = false; isGameOver = false
+        deactivateElasticPaddle()
         setupLevel(level)
         centerBalls()
         for b in allBalls { disarmBall(b); b.physicsBody?.velocity = .zero; b.isHidden = false }
@@ -960,6 +958,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         score -= 5
         if score <= 0 {
             score = 0; isPlaying = false; isGameOver = true
+            deactivateElasticPaddle()
             showCursorNow()
             for x in allBalls { x.physicsBody?.velocity = .zero; x.isHidden = true }
             gameOverLabel.text = "GAME OVER"; gameOverLabel.fontColor = .red; gameOverLabel.isHidden = false
@@ -977,6 +976,153 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if abs(sin(angle)) < 0.35 { angle += sin(angle) >= 0 ? 0.35 : -0.35 }
         ball.physicsBody?.velocity = CGVector(dx: cos(angle)*speed, dy: sin(angle)*speed); playHitSound()
     }
+    // MARK: - Elastisk oval plade (30 sek. efter et bold-sammenstød)
+    // Pladen bliver oval, skifter tilfældigt farve og "vugger" elastisk når den rammer bolden.
+    var elasticRemaining: TimeInterval = 0
+    var lastFrameTime: TimeInterval = 0
+    var originalPaddleTexture: SKTexture?
+    var ovalFromColor: SKColor = .systemPink
+    var ovalToColor: SKColor = .cyan
+    let ovalSize = CGSize(width: 160, height: 34)
+    var paddleHalfWidth: CGFloat { elasticRemaining > 0 ? ovalSize.width / 2 : paddle.size.width / 2 }
+
+    func setPaddleBody(_ body: SKPhysicsBody) {
+        body.categoryBitMask = PhysicsCategory.paddle
+        body.contactTestBitMask = PhysicsCategory.ball
+        body.collisionBitMask = PhysicsCategory.ball
+        body.isDynamic = false
+        paddle.physicsBody = body
+    }
+    /// Oval som konveks polygon (mod uret, 8 hjørner – SpriteKits grænse), så fysikken følger formen
+    func ovalPath(_ s: CGSize, points n: Int = 8) -> CGPath {
+        let p = CGMutablePath()
+        for i in 0..<n {
+            let a = CGFloat(i) / CGFloat(n) * 2 * .pi
+            let pt = CGPoint(x: cos(a) * s.width / 2, y: sin(a) * s.height / 2)
+            if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+        }
+        p.closeSubpath()
+        return p
+    }
+    func randomBrightColor() -> SKColor {
+        SKColor(hue: .random(in: 0...1), saturation: .random(in: 0.65...1), brightness: 1, alpha: 1)
+    }
+
+    func activateElasticPaddle() {
+        let wasActive = elasticRemaining > 0
+        elasticRemaining = 30
+        floatingText("ELASTIC PADDLE 30 SEC!", at: CGPoint(x: paddle.position.x, y: paddle.position.y + 40), color: .systemPink)
+        if wasActive { return }   // allerede aktiv: tiden starter bare forfra
+
+        originalPaddleTexture = paddle.texture
+        paddle.texture = nil
+        paddle.color = .clear
+        paddle.colorBlendFactor = 1
+        paddle.childNode(withName: "paddleShadow")?.isHidden = true
+
+        let shadow = SKShapeNode(ellipseOf: ovalSize)
+        shadow.name = "ovalShadow"; shadow.fillColor = .black; shadow.strokeColor = .clear; shadow.alpha = 0.35
+        shadow.position = CGPoint(x: 4, y: -6); shadow.zPosition = -1
+        paddle.addChild(shadow)
+
+        let oval = SKShapeNode(ellipseOf: ovalSize)
+        oval.name = "oval"
+        ovalFromColor = randomBrightColor(); ovalToColor = randomBrightColor()
+        oval.fillColor = ovalFromColor
+        oval.strokeColor = SKColor(white: 1, alpha: 0.8); oval.lineWidth = 2; oval.glowWidth = 4
+        let shine = SKShapeNode(ellipseOf: CGSize(width: ovalSize.width * 0.6, height: 8))
+        shine.fillColor = SKColor(white: 1, alpha: 0.45); shine.strokeColor = .clear
+        shine.position = CGPoint(x: 0, y: 7)
+        oval.addChild(shine)
+        paddle.addChild(oval)
+
+        // Tilfældige farver der glider over i hinanden hele tiden
+        let step: TimeInterval = 0.6
+        let fade = SKAction.customAction(withDuration: step) { [weak self] node, elapsed in
+            guard let self, let shape = node as? SKShapeNode else { return }
+            let t = elapsed / CGFloat(step)
+            shape.fillColor = self.ovalFromColor.blended(withFraction: t, of: self.ovalToColor) ?? self.ovalToColor
+        }
+        let next = SKAction.run { [weak self] in
+            guard let self else { return }
+            self.ovalFromColor = self.ovalToColor
+            self.ovalToColor = self.randomBrightColor()
+        }
+        oval.run(.repeatForever(.sequence([fade, next])), withKey: "colors")
+
+        // "Pop" ind med en lille fjedring
+        oval.xScale = 0.3; oval.yScale = 0.3
+        oval.run(.sequence([.scale(to: 1.2, duration: 0.12), .scale(to: 0.92, duration: 0.08), .scale(to: 1.0, duration: 0.08)]))
+
+        let timer = SKLabelNode(fontNamed: "Menlo-Bold")
+        timer.name = "ovalTimer"; timer.fontSize = 13; timer.fontColor = .white
+        timer.position = CGPoint(x: 0, y: 24)
+        paddle.addChild(timer)
+
+        setPaddleBody(SKPhysicsBody(polygonFrom: ovalPath(ovalSize)))
+        let half = paddleHalfWidth
+        paddle.position.x = min(max(paddle.position.x, half), size.width - half)
+    }
+
+    func deactivateElasticPaddle() {
+        guard paddle.childNode(withName: "oval") != nil else { elasticRemaining = 0; return }
+        elasticRemaining = 0
+        for name in ["oval", "ovalShadow", "ovalTimer"] { paddle.childNode(withName: name)?.removeFromParent() }
+        if let tex = originalPaddleTexture { paddle.texture = tex }
+        paddle.color = .white
+        paddle.colorBlendFactor = 0
+        paddle.childNode(withName: "paddleShadow")?.isHidden = false
+        setPaddleBody(SKPhysicsBody(rectangleOf: paddle.size))
+        // lille "pop" tilbage til den normale plade
+        paddle.xScale = 1.25; paddle.yScale = 0.7
+        paddle.run(.group([.scaleX(to: 1, duration: 0.18), .scaleY(to: 1, duration: 0.18)]))
+    }
+
+    func updateElasticPaddle(_ dt: TimeInterval) {
+        guard elasticRemaining > 0 else { return }
+        elasticRemaining -= dt
+        if elasticRemaining <= 0 { deactivateElasticPaddle(); return }
+        if let timer = paddle.childNode(withName: "ovalTimer") as? SKLabelNode {
+            timer.text = "\(Int(ceil(elasticRemaining)))s"
+            // blinker de sidste 3 sekunder
+            timer.alpha = elasticRemaining < 3 ? (Int(elasticRemaining * 6) % 2 == 0 ? 1 : 0.2) : 1
+        }
+    }
+
+    /// Elastisk "vuggen": pladen trykkes flad, fjedrer tilbage og svinger ud
+    func jellyBounce(at point: CGPoint) {
+        guard let oval = paddle.childNode(withName: "oval") as? SKShapeNode else { return }
+        oval.removeAction(forKey: "jelly")
+        let wobble: [(CGFloat, CGFloat, TimeInterval)] = [
+            (1.28, 0.55, 0.06), (0.88, 1.22, 0.09), (1.12, 0.88, 0.08),
+            (0.95, 1.06, 0.07), (1.03, 0.97, 0.06), (1.0, 1.0, 0.05)
+        ]
+        let seq = SKAction.sequence(wobble.map { step in
+            let (sx, sy, d) = step
+            let a = SKAction.group([.scaleX(to: sx, duration: d), .scaleY(to: sy, duration: d)])
+            a.timingMode = .easeInEaseOut
+            return a
+        })
+        let dip = SKAction.sequence([.moveBy(x: 0, y: -7, duration: 0.06), .moveBy(x: 0, y: 7, duration: 0.18)])
+        oval.run(.group([seq, dip]), withKey: "jelly")
+        // ny tilfældig farve med det samme ved ramt
+        ovalFromColor = randomBrightColor(); oval.fillColor = ovalFromColor
+        // lille "boing"-bølge der hvor bolden ramte
+        let ring = SKShapeNode(ellipseOf: CGSize(width: 30, height: 12))
+        ring.position = CGPoint(x: point.x, y: paddle.position.y + 10)
+        ring.strokeColor = ovalFromColor; ring.lineWidth = 3; ring.fillColor = .clear; ring.zPosition = 25
+        addChild(ring)
+        ring.run(.sequence([.group([.scaleX(to: 4, duration: 0.3), .scaleY(to: 2, duration: 0.3), .fadeOut(withDuration: 0.3)]), .removeFromParent()]))
+    }
+
+    func floatingText(_ text: String, at pos: CGPoint, color: SKColor) {
+        let label = SKLabelNode(fontNamed: "Menlo-Bold")
+        label.text = text; label.fontSize = 18; label.fontColor = color; label.zPosition = 35
+        label.position = CGPoint(x: min(max(pos.x, 140), size.width - 140), y: pos.y)
+        addChild(label)
+        label.run(.sequence([.group([.moveBy(x: 0, y: 50, duration: 1.6), .sequence([.wait(forDuration: 1.0), .fadeOut(withDuration: 0.6)])]), .removeFromParent()]))
+    }
+
     // MARK: - Bolde der rammer hinanden
     // Når 2 eller 3 bolde støder sammen: stor eksplosion, en ekstra bold og +100 point
     var lastBallCollision: TimeInterval = 0
@@ -986,6 +1132,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let now = Date().timeIntervalSince1970
         guard now - lastBallCollision > 1.0 else { return }     // ikke flere gange for samme sammenstød
         lastBallCollision = now
+        activateElasticPaddle()
         // Stor eksplosion – flere farver
         explode(at: point, color: color)
         explode(at: point, color: .systemOrange)
@@ -1058,10 +1205,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if (a.categoryBitMask == PhysicsCategory.ball && b.categoryBitMask == PhysicsCategory.paddle) || (a.categoryBitMask == PhysicsCategory.paddle && b.categoryBitMask == PhysicsCategory.ball) {
             addPoints(1, at: ball.position)
             playHitSound(); armBall(ball); squash(ball)
+            if elasticRemaining > 0 { jellyBounce(at: ball.position) }
             let speed = currentSpeed()
             let angle = CGFloat.random(in: 25.0...155.0) * .pi / 180
             var dx = cos(angle)*speed
-            let hitPos = (ball.position.x - paddle.position.x) / (paddle.size.width/2); dx += hitPos * 120
+            let hitPos = (ball.position.x - paddle.position.x) / paddleHalfWidth; dx += hitPos * 120
             ball.physicsBody?.velocity = CGVector(dx: dx, dy: abs(sin(angle)*speed)); updateHUD(); return
         }
         if a.categoryBitMask == PhysicsCategory.brick || b.categoryBitMask == PhysicsCategory.brick {
@@ -1190,7 +1338,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         super.willMove(from: view)
     }
     func movePaddle(by dx: CGFloat) {
-        let half = paddle.size.width / 2
+        let half = paddleHalfWidth
         paddle.position.x = min(max(paddle.position.x + dx, half), size.width - half)
     }
     // Fanger ALLE musebevægelser – også mens en museknap holdes nede (klik/træk),
@@ -1208,12 +1356,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     override func update(_ currentTime: TimeInterval) {
         updateCursor()
+        let dt = lastFrameTime > 0 ? min(currentTime - lastFrameTime, 0.1) : 0
+        lastFrameTime = currentTime
         if !isPlaying { return }
+        updateElasticPaddle(dt)
         if !pointerLocked, let view = self.view, let window = view.window {
             let mW = window.mouseLocationOutsideOfEventStream
             let mV = view.convert(mW, from: nil)
             // Pladen må aldrig komme uden for skærmen – hverken til højre eller venstre
-            let half = paddle.size.width / 2
+            let half = paddleHalfWidth
             let mouseX = convertPoint(fromView: mV).x
             paddle.position.x = min(max(mouseX, half), size.width - half)
         }
