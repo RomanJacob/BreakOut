@@ -165,7 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     @objc func showAbout() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let credits = "Created by Roman Dogonowski, October–November 2026\nVersion \(version)\n\nBreakout-style game for Apple Silicon\n\nNew: multi-ball levels (1 → 2 → 3 balls), x3 points with 3 balls, triangle and vertical bricks, explosions and a 3D look."
+        let credits = "Created by Roman Jakub Dogonowski, October–November 2026\nVersion \(version)\n\nBreakout-style game for Apple Silicon\n\nNew: multi-ball levels (1 → 2 → 3 balls), x3 points with 3 balls, triangle and vertical bricks, explosions and a 3D look."
         let options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: "Roman's Breakout",
             .applicationVersion: version,
