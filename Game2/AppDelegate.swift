@@ -206,13 +206,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
           it wobbles when it hits the ball and changes colour
 
         POWER-UPS:
-        • Broken bricks sometimes drop a capsule – catch it
+        • Broken bricks often drop a capsule – catch it
           with the paddle (+5 points)
         • W  WIDE PADDLE – 50% wider paddle for 15 seconds
         • S  SLOW BALL – balls move slower for 10 seconds
         • L  LASER – the paddle shoots by itself for 10 seconds
         • +  SHIELD – a shield at the bottom saves one ball
         • Active power-ups are shown in the bottom-left corner
+        • The slowest the balls ever go is 150% speed
         • A new game removes all power-ups
 
         POINTS:
@@ -229,6 +230,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
           and ⬢ hexagons (honeycomb)
         • Some levels have random standing bricks
         • Hit bricks explode and tumble down as 3D blocks
+        • Watch out: if a falling brick lands on your paddle,
+          it flies back to its place!
+        • From level 2 some bricks have a silver rim and a number:
+          they need 3 hits (ball or laser) before they break
+        • Clear a level for fanfare and fireworks!
 
         PLAYERS:
         • Click the player box (👤) or Game > Change Player (Cmd+P)
@@ -241,7 +247,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         • Space = Start / Pause / Resume
         • Esc or P = Pause / Resume
         • Click Level box = Change Level 1-99
-        • Click Speed % = Change start speed 50-300%
+        • Click Speed % = Change start speed 150-300%
         • Click Speaker = Sound ON/OFF
 
         MENU:

@@ -2,10 +2,10 @@ import SpriteKit
 import AppKit
 
 // MARK: - Power-ups
-// Når en klods går i stykker, er der 15% chance for, at den taber en kapsel.
+// Når en klods går i stykker, er der 25% chance for, at den taber en kapsel.
 // Fang kapslen med pladen for at få dens power-up:
 //   W  WIDE   – pladen bliver 50% bredere i 15 sek.
-//   S  SLOW   – boldene kører 40% langsommere i 10 sek.
+//   S  SLOW   – boldene kører 40% langsommere i 10 sek. (dog aldrig under 150% fart)
 //   L  LASER  – pladen skyder automatisk laserskud i 10 sek.
 //   +  SHIELD – et skjold i bunden redder én bold
 // Fanger man den samme igen, mens den er aktiv, starter tiden forfra.
@@ -51,7 +51,7 @@ enum PowerUpKind: Int, CaseIterable {
 
 extension GameScene {
     // Indstillinger
-    var dropChance: Double { 0.15 }           // chance for kapsel pr. knust klods
+    var dropChance: Double { 0.25 }           // chance for kapsel pr. knust klods
     var maxFallingCapsules: Int { 3 }
     var capsuleFallSpeed: CGFloat { 170 }
     var laserInterval: TimeInterval { 0.45 }  // tid mellem laserskud
@@ -225,6 +225,11 @@ extension GameScene {
             let tip = CGPoint(x: beam.position.x, y: beam.position.y + 10)
             if let brick = children.first(where: { $0.name == "brick" && $0.frame.contains(tip) }) {
                 beam.removeFromParent()
+                if !damageBrick(brick) {          // klods med flere lag: mister kun et lag
+                    addPoints(1, at: brick.position)
+                    playHitSound()
+                    continue
+                }
                 addPoints(2, at: brick.position)
                 maybeDropPowerUp(at: brick.position)
                 makeBrickFall(brick)
