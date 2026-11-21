@@ -1,0 +1,51 @@
+# Hæver versionsnummeret automatisk, hver gang der kommer noget nyt ind i main
+# (fx når en pull request bliver merged): 1.6 -> 1.7 -> 1.8 -> 1.9 -> 2.0 ...
+# Build-nummeret tælles også 1 op. Hver version får et tag (v1.7, v1.8 ...),
+# så alle tidligere versioner altid kan findes under "Tags" på GitHub.
+# Skriv [skip version] i en commit-besked, hvis en ændring IKKE skal give ny version.
+name: Hæv versionsnummer
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-version
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: ${{ !contains(github.event.head_commit.message, '[skip version]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Hæv version og build-nummer
+        id: bump
+        run: |
+          FILE=Game2.xcodeproj/project.pbxproj
+          OLD=$(grep -m1 -oE 'MARKETING_VERSION = [0-9]+(\.[0-9]+)*' "$FILE" | awk '{print $3}')
+          MAJOR=${OLD%%.*}
+          MINOR=$(echo "$OLD" | cut -d. -f2); MINOR=${MINOR:-0}
+          if [ "$MINOR" -ge 9 ]; then MAJOR=$((MAJOR + 1)); MINOR=0; else MINOR=$((MINOR + 1)); fi
+          NEW="$MAJOR.$MINOR"
+          BUILD=$(grep -m1 -oE 'CURRENT_PROJECT_VERSION = [0-9]+' "$FILE" | awk '{print $3}')
+          NEWBUILD=$((BUILD + 1))
+          sed -i -E "s/MARKETING_VERSION = [0-9.]+;/MARKETING_VERSION = $NEW;/g; s/CURRENT_PROJECT_VERSION = [0-9]+;/CURRENT_PROJECT_VERSION = $NEWBUILD;/g" "$FILE"
+          echo "Version $OLD -> $NEW (build $NEWBUILD)"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "build=$NEWBUILD" >> "$GITHUB_OUTPUT"
+
+      - name: Gem den nye version på GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Version ${{ steps.bump.outputs.new }} (build ${{ steps.bump.outputs.build }}) [skip version]"
+          git tag "v${{ steps.bump.outputs.new }}"
+          git push origin HEAD:main
+          git push origin "v${{ steps.bump.outputs.new }}"
