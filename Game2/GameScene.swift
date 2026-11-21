@@ -38,6 +38,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var pendingTransition: (() -> Void)?
     var transitionText = ""
     var transitionColor: SKColor = .white
+    // Power-ups (logikken ligger i PowerUps.swift)
+    var capsules: [SKNode] = []
+    var lasers: [SKNode] = []
+    var wideRemaining: TimeInterval = 0
+    var slowRemaining: TimeInterval = 0
+    var laserRemaining: TimeInterval = 0
+    var laserCooldown: TimeInterval = 0
+    var shieldActive = false
+    var powerUpLabel: SKLabelNode!
+    let paddleMetalColor = SKColor(calibratedRed: 0.72, green: 0.85, blue: 1.0, alpha: 1)
     // Multi-ball: level 1 = 1 bold, level 2 = 2 bolde, level 3 = 3 bolde, så forfra (4 = 1, 5 = 2, 6 = 3 ...)
     // Point trækkes KUN når alle bolde er misset.
     var extraBalls: [SKShapeNode] = []
@@ -110,7 +120,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         addChild(ball)
 
         // 3D-plade: metal-look med glans og skygge
-        paddle.texture = bevelTexture(size: paddle.size, color: SKColor(calibratedRed: 0.72, green: 0.85, blue: 1.0, alpha: 1), radius: 10)
+        paddle.texture = bevelTexture(size: paddle.size, color: paddleMetalColor, radius: 10)
         let paddleShadow = SKSpriteNode(color: .black, size: paddle.size)
         paddleShadow.alpha = 0.4; paddleShadow.position = CGPoint(x: 4, y: -5); paddleShadow.zPosition = -1
         paddleShadow.name = "paddleShadow"
@@ -339,6 +349,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         isPlaying = false
         for b in allBalls { b.physicsBody?.velocity = .zero }
         inTransition = true
+        removeCapsulesAndLasers()
         transitionText = text; transitionColor = color
         gameOverLabel.text = text; gameOverLabel.fontColor = color; gameOverLabel.isHidden = false
         transitionID += 1
@@ -380,6 +391,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         layoutHUD()
         paddle.position.y = 80
         if !isPlaying { centerBalls() }
+        if shieldActive { createShield() }
     }
     
     func setupHUD() {
@@ -465,6 +477,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
         gameOverLabel = SKLabelNode(fontNamed: "Menlo-Bold"); gameOverLabel.fontSize = 24
         addChild(gameOverLabel)
+        setupPowerUpHUD()
     }
     
     func layoutHUD() {
@@ -760,10 +773,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setBallColor(b, ballColors[idx % ballColors.count])
     }
     func getStartSpeed() -> CGFloat { return baseSpeed * CGFloat(startSpeedPercent) / 100.0 }
-    func currentSpeed() -> CGFloat {
+    /// Farten uden power-ups (bruges til Speed-dialogen og når farten sænkes efter et miss)
+    func normalSpeed() -> CGFloat {
         let diff = CGFloat(score - 25) / 10.0
         return getStartSpeed() * max(0.5, min(1.0 + diff*speedStep, 2.5)) * (1.0 + CGFloat(level)*0.05)
     }
+    /// Den fart boldene faktisk har – SLOW power-up gør dem langsommere
+    func currentSpeed() -> CGFloat { normalSpeed() * slowFactor }
     func playHitSound() { if soundOn { NSSound(named: "Pop")?.play() } }
     func playMissSound() { if soundOn { NSSound(named: "Basso")?.play() } }
     func updateHUD() {
@@ -792,6 +808,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func prepareGame() {
         isPlaying = false; gamePaused = false; isGameOver = false
         cancelTransition()
+        clearPowerUps()
         playTime = 0
         timeLabel?.text = "00:00.00"
         deactivateElasticPaddle()
@@ -855,7 +872,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func promptForSpeed() {
         let paused = pauseForDialog()
         DispatchQueue.main.async {
-            let nowPct = Int((self.currentSpeed() / self.baseSpeed * 100).rounded())
+            let nowPct = Int((self.normalSpeed() / self.baseSpeed * 100).rounded())
             let tf = NSTextField(string: "\(nowPct)")
             let okPressed = InputDialog.run(title: "Change Speed",
                                             message: "Enter ball speed in % (50-300).\nThe ball gets this speed right away, and it still goes up as you score points.",
@@ -867,7 +884,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     let wanted = CGFloat(min(max(typed, 50), 300))
                     // Det du skriver er den fart bolden får NU (og det der står i Speed-feltet).
                     // Derfor regnes level- og point-tillæg fra, når start-farten gemmes.
-                    let factor = self.currentSpeed() / max(self.getStartSpeed(), 0.001)
+                    let factor = self.normalSpeed() / max(self.getStartSpeed(), 0.001)
                     let ns = max(10, Int((wanted / factor).rounded()))
                     self.startSpeedPercent = ns
                     UserDefaults.standard.set(ns, forKey: "StartSpeedPercent")
@@ -1165,11 +1182,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
     /// Hver gang en bold misses: farten (Speed %) går 10 ned – dog aldrig under 50%
     func slowDownAfterMiss() {
-        let nowPct = currentSpeed() / baseSpeed * 100
+        let nowPct = normalSpeed() / baseSpeed * 100
         guard nowPct > 50 else { return }
         let wanted = max(50, nowPct - 10)
         // Samme regnemåde som "Change Speed": level- og point-tillæg regnes fra
-        let factor = currentSpeed() / max(getStartSpeed(), 0.001)
+        let factor = normalSpeed() / max(getStartSpeed(), 0.001)
         let ns = max(10, Int((wanted / factor).rounded()))
         startSpeedPercent = ns
         UserDefaults.standard.set(ns, forKey: "StartSpeedPercent")
@@ -1215,10 +1232,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // Pladen bliver oval, skifter tilfældigt farve og "vugger" elastisk når den rammer bolden.
     var elasticRemaining: TimeInterval = 0
     var lastFrameTime: TimeInterval = 0
-    var originalPaddleTexture: SKTexture?
     var ovalFromColor: SKColor = .systemPink
     var ovalToColor: SKColor = .cyan
-    let ovalSize = CGSize(width: 160, height: 34)
+    var ovalSize: CGSize { CGSize(width: 160 * paddleWidthFactor, height: 34) }
     var paddleHalfWidth: CGFloat { elasticRemaining > 0 ? ovalSize.width / 2 : paddle.size.width / 2 }
 
     func setPaddleBody(_ body: SKPhysicsBody) {
@@ -1249,23 +1265,36 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         floatingText("ELASTIC PADDLE 20 SEC!", at: CGPoint(x: paddle.position.x, y: paddle.position.y + 40), color: .systemPink)
         if wasActive { return }   // allerede aktiv: de 20 sek. starter forfra
 
-        originalPaddleTexture = paddle.texture
         paddle.texture = nil
         paddle.color = .clear
         paddle.colorBlendFactor = 1
         paddle.childNode(withName: "paddleShadow")?.isHidden = true
+        buildOvalNodes(popIn: true)
 
-        let shadow = SKShapeNode(ellipseOf: ovalSize)
+        let timer = SKLabelNode(fontNamed: "Menlo-Bold")
+        timer.name = "ovalTimer"; timer.fontSize = 13; timer.fontColor = .white
+        timer.position = CGPoint(x: 0, y: 24)
+        paddle.addChild(timer)
+
+        let half = paddleHalfWidth
+        paddle.position.x = min(max(paddle.position.x, half), size.width - half)
+    }
+
+    /// Bygger den ovale plade – når den aktiveres, og igen hvis WIDE ændrer bredden
+    func buildOvalNodes(popIn: Bool) {
+        for name in ["oval", "ovalShadow"] { paddle.childNode(withName: name)?.removeFromParent() }
+        let size = ovalSize
+        let shadow = SKShapeNode(ellipseOf: size)
         shadow.name = "ovalShadow"; shadow.fillColor = .black; shadow.strokeColor = .clear; shadow.alpha = 0.35
         shadow.position = CGPoint(x: 4, y: -6); shadow.zPosition = -1
         paddle.addChild(shadow)
 
-        let oval = SKShapeNode(ellipseOf: ovalSize)
+        let oval = SKShapeNode(ellipseOf: size)
         oval.name = "oval"
         ovalFromColor = randomBrightColor(); ovalToColor = randomBrightColor()
         oval.fillColor = ovalFromColor
         oval.strokeColor = SKColor(white: 1, alpha: 0.8); oval.lineWidth = 2; oval.glowWidth = 4
-        let shine = SKShapeNode(ellipseOf: CGSize(width: ovalSize.width * 0.6, height: 8))
+        let shine = SKShapeNode(ellipseOf: CGSize(width: size.width * 0.6, height: 8))
         shine.fillColor = SKColor(white: 1, alpha: 0.45); shine.strokeColor = .clear
         shine.position = CGPoint(x: 0, y: 7)
         oval.addChild(shine)
@@ -1285,29 +1314,22 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         oval.run(.repeatForever(.sequence([fade, next])), withKey: "colors")
 
-        // "Pop" ind med en lille fjedring
-        oval.xScale = 0.3; oval.yScale = 0.3
-        oval.run(.sequence([.scale(to: 1.2, duration: 0.12), .scale(to: 0.92, duration: 0.08), .scale(to: 1.0, duration: 0.08)]))
-
-        let timer = SKLabelNode(fontNamed: "Menlo-Bold")
-        timer.name = "ovalTimer"; timer.fontSize = 13; timer.fontColor = .white
-        timer.position = CGPoint(x: 0, y: 24)
-        paddle.addChild(timer)
-
-        setPaddleBody(SKPhysicsBody(polygonFrom: ovalPath(ovalSize)))
-        let half = paddleHalfWidth
-        paddle.position.x = min(max(paddle.position.x, half), size.width - half)
+        if popIn {
+            // "Pop" ind med en lille fjedring
+            oval.xScale = 0.3; oval.yScale = 0.3
+            oval.run(.sequence([.scale(to: 1.2, duration: 0.12), .scale(to: 0.92, duration: 0.08), .scale(to: 1.0, duration: 0.08)]))
+        }
+        setPaddleBody(SKPhysicsBody(polygonFrom: ovalPath(size)))
     }
 
     func deactivateElasticPaddle() {
         guard paddle.childNode(withName: "oval") != nil else { elasticRemaining = 0; return }
         elasticRemaining = 0
         for name in ["oval", "ovalShadow", "ovalTimer"] { paddle.childNode(withName: name)?.removeFromParent() }
-        if let tex = originalPaddleTexture { paddle.texture = tex }
         paddle.color = .white
         paddle.colorBlendFactor = 0
         paddle.childNode(withName: "paddleShadow")?.isHidden = false
-        setPaddleBody(SKPhysicsBody(rectangleOf: paddle.size))
+        applyNormalPaddleShape()
         // lille "pop" tilbage til den normale plade
         paddle.xScale = 1.25; paddle.yScale = 0.7
         paddle.run(.group([.scaleX(to: 1, duration: 0.18), .scaleY(to: 1, duration: 0.18)]))
@@ -1437,6 +1459,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard let ball = (a.categoryBitMask == PhysicsCategory.ball ? a.node : b.node) as? SKShapeNode else { return }
         if a.categoryBitMask == PhysicsCategory.wall || b.categoryBitMask == PhysicsCategory.wall {
             let wallNode = a.categoryBitMask == PhysicsCategory.wall ? a.node : b.node
+            if wallNode?.name == "shield" { handleShieldHit(ball); return }
             handleWallHit(wallName: wallNode?.name ?? "wall", ball: ball); return
         }
         if (a.categoryBitMask == PhysicsCategory.ball && b.categoryBitMask == PhysicsCategory.paddle) || (a.categoryBitMask == PhysicsCategory.paddle && b.categoryBitMask == PhysicsCategory.ball) {
@@ -1480,31 +1503,37 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
                 // 3) Hit nedefra -> falder som før
                 addPoints(2, at: brick.position)
+                maybeDropPowerUp(at: brick.position)
                 makeBrickFall(brick)
                 playHitSound(); disarmBall(ball); updateHUD()
-                let remaining = children.filter({ $0.name == "brick" }).count
-                if remaining == 0 {
-                    if hiddenRowsRemaining > 0 {
-                        let nextBatch = min(hiddenRowsRemaining, maxVisibleRows)
-                        hiddenRowsRemaining -= nextBatch
-                        scheduleTransition(after: 0.8, text: "NEXT WAVE!", color: .orange) {
-                            self.createBricks(rows: nextBatch)
-                            self.centerBalls()
-                            for b in self.allBalls { b.isHidden = false; self.launchBall(b) }
-                            self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
-                        }
-                    } else {
-                        let nextBalls = ballCount(for: level + 1)
-                        scheduleTransition(after: 1.5, text: "LEVEL \(level) CLEAR! NEXT: \(ballsText(nextBalls))!", color: .green) {
-                            self.setupLevel(self.level + 1)
-                            self.centerBalls()
-                            for b in self.allBalls { b.isHidden = false }
-                            self.launchAllBalls(atSpeed: self.currentSpeed()); self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
-                        }
-                    }
-                    updateHUD()
+                checkLevelCleared()
+            }
+        }
+    }
+    /// Når alle klodser er væk: næste bølge eller næste level
+    func checkLevelCleared() {
+        guard isPlaying, !inTransition else { return }
+        let remaining = children.filter({ $0.name == "brick" }).count
+        if remaining == 0 {
+            if hiddenRowsRemaining > 0 {
+                let nextBatch = min(hiddenRowsRemaining, maxVisibleRows)
+                hiddenRowsRemaining -= nextBatch
+                scheduleTransition(after: 0.8, text: "NEXT WAVE!", color: .orange) {
+                    self.createBricks(rows: nextBatch)
+                    self.centerBalls()
+                    for b in self.allBalls { b.isHidden = false; self.launchBall(b) }
+                    self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
+                }
+            } else {
+                let nextBalls = ballCount(for: level + 1)
+                scheduleTransition(after: 1.5, text: "LEVEL \(level) CLEAR! NEXT: \(ballsText(nextBalls))!", color: .green) {
+                    self.setupLevel(self.level + 1)
+                    self.centerBalls()
+                    for b in self.allBalls { b.isHidden = false }
+                    self.launchAllBalls(atSpeed: self.currentSpeed()); self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
                 }
             }
+            updateHUD()
         }
     }
     override func mouseDown(with event: NSEvent) {
@@ -1604,6 +1633,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         lastFrameTime = currentTime
         if !isPlaying { return }
         updateElasticPaddle(dt)
+        updatePowerUps(dt)
         if !pointerLocked, let view = self.view, let window = view.window {
             let mW = window.mouseLocationOutsideOfEventStream
             let mV = view.convert(mW, from: nil)

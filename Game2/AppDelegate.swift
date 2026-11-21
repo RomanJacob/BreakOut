@@ -165,7 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     @objc func showAbout() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let credits = "Created by Roman Jakub Dogonowski, October–November 2026\nVersion \(version)\n\nBreakout-style game for Apple Silicon\n\nNew: multi-ball levels (1 → 2 → 3 balls), x3 points with 3 balls, triangle and vertical bricks, explosions and a 3D look."
+        let credits = "Created by Roman Jakub Dogonowski, October–November 2026\nVersion \(version)\n\nBreakout-style game for Apple Silicon\n\nNew: multi-ball levels (1 → 2 → 3 balls), x3 points with 3 balls, triangle and vertical bricks, explosions, a 3D look and power-ups (wide paddle, slow ball, laser, shield)."
         let options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: "Roman's Breakout",
             .applicationVersion: version,
@@ -204,6 +204,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
           (never more than 4 balls on the field at once)
         • …and the paddle turns into an ELASTIC OVAL for 20 seconds:
           it wobbles when it hits the ball and changes colour
+
+        POWER-UPS:
+        • Broken bricks sometimes drop a capsule – catch it
+          with the paddle (+5 points)
+        • W  WIDE PADDLE – 50% wider paddle for 15 seconds
+        • S  SLOW BALL – balls move slower for 10 seconds
+        • L  LASER – the paddle shoots by itself for 10 seconds
+        • +  SHIELD – a shield at the bottom saves one ball
+        • Active power-ups are shown in the bottom-left corner
+        • A new game removes all power-ups
 
         POINTS:
         • +1 per paddle hit, +2 per brick
