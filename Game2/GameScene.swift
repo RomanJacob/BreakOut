@@ -38,6 +38,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var pendingTransition: (() -> Void)?
     var transitionText = ""
     var transitionColor: SKColor = .white
+    /// Tælles op hver gang der bygges nye klodser – så en gammel klods aldrig kommer tilbage på en ny bane
+    var brickGeneration = 0
+    /// Fanfaren der spiller under fejringen (så den kan stoppes ved nyt spil)
+    var fanfareSound: NSSound?
     // Power-ups (logikken ligger i PowerUps.swift)
     var capsules: [SKNode] = []
     var lasers: [SKNode] = []
@@ -76,6 +80,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     let baseSpeed: CGFloat = 125
     let speedStep: CGFloat = 0.08
+    /// Laveste fart boldene nogensinde kører (i % af baseSpeed) – også med SLOW og efter miss
+    let minSpeedPercent: CGFloat = 150
     // Ny rækkefølge - rød og pink er aldrig naboer, så de ligner ikke 2 ens røde rækker
     let brickColors: [SKColor] = [.systemRed, .systemOrange, .systemYellow, .systemPink, .systemGreen, .cyan, .systemPurple]
     
@@ -705,6 +711,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     func createBricks(rows: Int) {
+        brickGeneration += 1
+        defer { addArmoredBricks() }
         if levelIsVertical { createVerticalBricks(rows: rows); return }
         hexRowParity = 0
         for n in children where n.name == "brick" { n.removeFromParent() }
@@ -778,8 +786,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let diff = CGFloat(score - 25) / 10.0
         return getStartSpeed() * max(0.5, min(1.0 + diff*speedStep, 2.5)) * (1.0 + CGFloat(level)*0.05)
     }
-    /// Den fart boldene faktisk har – SLOW power-up gør dem langsommere
-    func currentSpeed() -> CGFloat { normalSpeed() * slowFactor }
+    /// Den fart boldene faktisk har – SLOW power-up gør dem langsommere, men aldrig under minSpeedPercent
+    func currentSpeed() -> CGFloat { max(normalSpeed() * slowFactor, baseSpeed * minSpeedPercent / 100) }
     func playHitSound() { if soundOn { NSSound(named: "Pop")?.play() } }
     func playMissSound() { if soundOn { NSSound(named: "Basso")?.play() } }
     func updateHUD() {
@@ -808,6 +816,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func prepareGame() {
         isPlaying = false; gamePaused = false; isGameOver = false
         cancelTransition()
+        stopCelebration()
         clearPowerUps()
         playTime = 0
         timeLabel?.text = "00:00.00"
@@ -872,16 +881,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func promptForSpeed() {
         let paused = pauseForDialog()
         DispatchQueue.main.async {
-            let nowPct = Int((self.normalSpeed() / self.baseSpeed * 100).rounded())
+            let nowPct = Int(max(self.normalSpeed() / self.baseSpeed * 100, self.minSpeedPercent).rounded())
             let tf = NSTextField(string: "\(nowPct)")
             let okPressed = InputDialog.run(title: "Change Speed",
-                                            message: "Enter ball speed in % (50-300).\nThe ball gets this speed right away, and it still goes up as you score points.",
+                                            message: "Enter ball speed in % (150-300).\nThe ball gets this speed right away, and it still goes up as you score points.",
                                             field: tf)
             if okPressed {
-                // Tillad "150", "150%" og " 150 " – og hold værdien inden for 50-300
+                // Tillad "150", "150%" og " 150 " – og hold værdien inden for 150-300
                 let raw = tf.stringValue.replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
                 if let typed = Int(raw) {
-                    let wanted = CGFloat(min(max(typed, 50), 300))
+                    let wanted = min(max(CGFloat(typed), self.minSpeedPercent), 300)
                     // Det du skriver er den fart bolden får NU (og det der står i Speed-feltet).
                     // Derfor regnes level- og point-tillæg fra, når start-farten gemmes.
                     let factor = self.normalSpeed() / max(self.getStartSpeed(), 0.001)
@@ -1066,7 +1075,26 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let pos = brick.position
         brick.name = nil
         brick.removeFromParent()
-        fall3D(points: pts, color: color, at: pos)
+        let generation = brickGeneration
+        fall3D(points: pts, color: color, at: pos) { [weak self] in
+            self?.restoreBrick(brick, generation: generation)
+        }
+    }
+
+    /// En faldende klods ramte pladen: den flyver tilbage på sin plads
+    func restoreBrick(_ brick: SKNode, generation: Int) {
+        guard generation == brickGeneration, isPlaying, !inTransition, !isGameOver, brick.parent == nil else { return }
+        brick.name = "brick"
+        let target = brick.position
+        brick.setScale(0.2); brick.alpha = 0
+        addChild(brick)
+        let back = SKAction.group([.scale(to: 1.0, duration: 0.35), .fadeIn(withDuration: 0.25)])
+        back.timingMode = .easeOut
+        brick.run(.sequence([back, .scale(to: 1.15, duration: 0.08), .scale(to: 1.0, duration: 0.08)]))
+        explode(at: target, color: .white)
+        floatingText("BRICK IS BACK!", at: CGPoint(x: target.x, y: target.y - 30), color: .systemOrange)
+        if soundOn { NSSound(named: "Funk")?.play() }
+        updateHUD()
     }
 
     // MARK: - Ægte 3D-fald
@@ -1075,7 +1103,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // gennem regnbuen og kaster en skygge, mens den falder.
     struct V3 { var x: CGFloat; var y: CGFloat; var z: CGFloat }
 
-    func fall3D(points pts: [CGPoint], color: SKColor, at pos: CGPoint) {
+    /// onPaddleHit kaldes, hvis den faldende klods rammer pladen (så kommer den tilbage på sin plads)
+    func fall3D(points pts: [CGPoint], color: SKColor, at pos: CGPoint, onPaddleHit: (() -> Void)? = nil) {
         let n = pts.count
         let depth: CGFloat = 16
         let life: CGFloat = 2.0
@@ -1115,14 +1144,27 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let colors = brickColors
         let light = { () -> V3 in let l = V3(x: -0.45, y: 0.6, z: 0.7); let m = sqrt(l.x*l.x + l.y*l.y + l.z*l.z); return V3(x: l.x/m, y: l.y/m, z: l.z/m) }()
         let focal: CGFloat = 650
+        let halfH = ((pts.map(\.y).max() ?? 10) - (pts.map(\.y).min() ?? -10)) / 2
+        var hitPaddle = false
 
-        let animate = SKAction.customAction(withDuration: TimeInterval(life)) { node, elapsed in
+        let animate = SKAction.customAction(withDuration: TimeInterval(life)) { [weak self] node, elapsed in
+            if hitPaddle { return }
             let t = elapsed
             let k = min(t / life, 1)
             // bevægelse: lille hop op og så ned med tyngdekraft
             let x = pos.x + v0x * t
             let y = pos.y + v0y * t + 0.5 * g * t * t
             node.position = CGPoint(x: x, y: y)
+            // Rammer klodsen pladen på vej ned? Så flyver den tilbage på sin plads
+            if let self, let onPaddleHit, self.isPlaying, v0y + g * t < 0,
+               abs(y - self.paddle.position.y) < halfH + 12,
+               abs(x - self.paddle.position.x) < self.paddleHalfWidth + width / 3 {
+                hitPaddle = true
+                node.isHidden = true
+                shadow.removeFromParent()
+                onPaddleHit()
+                return
+            }
             // farve gennem regnbuen, startende med klodsens egen farve
             let cpos = k * CGFloat(colors.count) * 1.5
             let ci = Int(cpos)
@@ -1180,11 +1222,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         shadow.run(.sequence([.wait(forDuration: TimeInterval(life)), .removeFromParent()]))
     }
 
-    /// Hver gang en bold misses: farten (Speed %) går 10 ned – dog aldrig under 50%
+    /// Hver gang en bold misses: farten (Speed %) går 10 ned – dog aldrig under minSpeedPercent (150%)
     func slowDownAfterMiss() {
         let nowPct = normalSpeed() / baseSpeed * 100
-        guard nowPct > 50 else { return }
-        let wanted = max(50, nowPct - 10)
+        guard nowPct > minSpeedPercent else { return }
+        let wanted = max(minSpeedPercent, nowPct - 10)
         // Samme regnemåde som "Change Speed": level- og point-tillæg regnes fra
         let factor = normalSpeed() / max(getStartSpeed(), 0.001)
         let ns = max(10, Int((wanted / factor).rounded()))
@@ -1501,7 +1543,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     playHitSound()
                     return
                 }
-                // 3) Hit nedefra -> falder som før
+                // 3) Hit nedefra -> klodser med flere lag mister et lag, ellers falder den som før
+                if !damageBrick(brick) {
+                    addPoints(1, at: brick.position)
+                    playHitSound(); disarmBall(ball); updateHUD()
+                    return
+                }
                 addPoints(2, at: brick.position)
                 maybeDropPowerUp(at: brick.position)
                 makeBrickFall(brick)
@@ -1525,13 +1572,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
                 }
             } else {
+                // Level klaret: 3 sekunders fejring med fanfare og fyrværkeri, derefter næste level
                 let nextBalls = ballCount(for: level + 1)
-                scheduleTransition(after: 1.5, text: "LEVEL \(level) CLEAR! NEXT: \(ballsText(nextBalls))!", color: .green) {
+                let clearedLevel = level
+                scheduleTransition(after: celebrationDuration, text: "NEXT LEVEL: \(ballsText(nextBalls))!", color: .green) {
                     self.setupLevel(self.level + 1)
                     self.centerBalls()
                     for b in self.allBalls { b.isHidden = false }
                     self.launchAllBalls(atSpeed: self.currentSpeed()); self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
                 }
+                startCelebration(level: clearedLevel)
             }
             updateHUD()
         }
