@@ -178,7 +178,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Sæt spillet på pause først – så bliver musepilen låst op og vist igen,
         // ellers er pilen skjult og fanget i spillet og man kan ikke klikke OK
         if let scene = getGameScene() {
-            if scene.isPlaying { scene.handleStatusToggle() }
+            if scene.isPlaying || (scene.inTransition && !scene.gamePaused) { scene.handleStatusToggle() }
             scene.showCursorNow()
         }
         let alert = NSAlert()
@@ -201,6 +201,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
           and changes colour on every paddle hit
         • If 2 or 3 balls crash into each other: BIG explosion,
           an EXTRA ball and +100 points!
+          (never more than 4 balls on the field at once)
         • …and the paddle turns into an ELASTIC OVAL for 20 seconds:
           it wobbles when it hits the ball and changes colour
 
@@ -228,6 +229,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         CONTROLS:
         • Space = Start / Pause / Resume
+        • Esc or P = Pause / Resume
         • Click Level box = Change Level 1-99
         • Click Speed % = Change start speed 50-300%
         • Click Speaker = Sound ON/OFF
@@ -265,7 +267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     @objc func showDisplayInfo() {
         if let scene = getGameScene() {
-            if scene.isPlaying { scene.handleStatusToggle() }
+            if scene.isPlaying || (scene.inTransition && !scene.gamePaused) { scene.handleStatusToggle() }
             scene.showCursorNow()
         }
         let alert = NSAlert()

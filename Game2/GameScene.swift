@@ -28,7 +28,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var isPlaying = false
     var gamePaused = false
     var isGameOver = false
-    var startTime: TimeInterval = 0
+    /// Spilletid for det nuværende spil – tæller kun mens der spilles (ikke under pause)
+    var playTime: TimeInterval = 0
+    /// Aldrig flere end dette antal bolde på banen på én gang
+    let maxBallsOnField = 4
+    // Baneskift ("NEXT WAVE" / "LEVEL CLEAR"): kan sættes på pause, og bliver annulleret ved genstart
+    var inTransition = false
+    var transitionID = 0
+    var pendingTransition: (() -> Void)?
+    var transitionText = ""
+    var transitionColor: SKColor = .white
     // Multi-ball: level 1 = 1 bold, level 2 = 2 bolde, level 3 = 3 bolde, så forfra (4 = 1, 5 = 2, 6 = 3 ...)
     // Point trækkes KUN når alle bolde er misset.
     var extraBalls: [SKShapeNode] = []
@@ -283,6 +292,71 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     func launchAllBalls(atSpeed speed: CGFloat) {
         for b in allBalls { launchBallAtSpeed(speed, b) }
+    }
+
+    // MARK: - Pause omkring dialoger og baneskift
+    /// Sætter spillet på pause før en dialog vises.
+    /// Returnerer true hvis det var dialogen, der satte pausen (så skal den også fortsætte bagefter).
+    /// Var spillet allerede sat på pause af spilleren, forbliver det på pause efter dialogen.
+    func pauseForDialog() -> Bool {
+        showCursorNow()
+        if isPlaying {
+            gamePaused = true; isPlaying = false; pauseBalls(); updateHUD()
+            return true
+        }
+        if inTransition && !gamePaused {
+            gamePaused = true; updateHUD()
+            return true
+        }
+        return false
+    }
+    func resumeAfterDialog(_ pausedByDialog: Bool) {
+        guard pausedByDialog, gamePaused, !isGameOver else { updateHUD(); return }
+        resumePlay()
+    }
+    /// Fortsætter efter pause – også hvis pausen kom midt i et baneskift
+    func resumePlay() {
+        gamePaused = false
+        if inTransition {
+            if let work = pendingTransition {
+                pendingTransition = nil
+                work()
+            } else {
+                // baneskiftet er ikke færdigt endnu – vis beskeden igen og lad det køre videre
+                gameOverLabel.text = transitionText; gameOverLabel.fontColor = transitionColor
+                gameOverLabel.isHidden = false
+            }
+        } else {
+            isPlaying = true
+            resumeBalls()
+            gameOverLabel.isHidden = true
+        }
+        updateHUD()
+    }
+    /// Starter et baneskift efter en kort pause. Hvis spilleren trykker pause imens,
+    /// venter skiftet, til der trykkes fortsæt. En ny start/genstart annullerer det.
+    func scheduleTransition(after delay: TimeInterval, text: String, color: SKColor, _ work: @escaping () -> Void) {
+        isPlaying = false
+        for b in allBalls { b.physicsBody?.velocity = .zero }
+        inTransition = true
+        transitionText = text; transitionColor = color
+        gameOverLabel.text = text; gameOverLabel.fontColor = color; gameOverLabel.isHidden = false
+        transitionID += 1
+        let id = transitionID
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, id == self.transitionID, self.inTransition else { return }
+            let run = { [weak self] in
+                guard let self, id == self.transitionID else { return }
+                self.inTransition = false
+                work()
+            }
+            if self.gamePaused { self.pendingTransition = run } else { run() }
+        }
+    }
+    func cancelTransition() {
+        inTransition = false
+        transitionID += 1
+        pendingTransition = nil
     }
 
     func createWalls() {
@@ -711,12 +785,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         else { levelLabel.text = "Level: \(level)\(ballsTag)" }
         levelLabel.fontSize = (levelLabel.text?.count ?? 0) > 13 ? 11 : 13
         if isGameOver { statusButtonLabel.text = "START"; statusButton.fillColor = .systemGreen }
-        else if isPlaying { statusButtonLabel.text = "PLAYING"; statusButton.fillColor = .systemGreen }
         else if gamePaused { statusButtonLabel.text = "PAUSED"; statusButton.fillColor = .systemYellow }
+        else if isPlaying || inTransition { statusButtonLabel.text = "PLAYING"; statusButton.fillColor = .systemGreen }
         else { statusButtonLabel.text = "START"; statusButton.fillColor = .systemGreen }
     }
     func prepareGame() {
         isPlaying = false; gamePaused = false; isGameOver = false
+        cancelTransition()
+        playTime = 0
+        timeLabel?.text = "00:00.00"
         deactivateElasticPaddle()
         setupLevel(level)
         centerBalls()
@@ -735,18 +812,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     func handleStatusToggle() {
         if isGameOver { restartGame(); return }
-        if isPlaying {
+        if isPlaying || (inTransition && !gamePaused) {
+            // Pause – også midt i et baneskift
+            if isPlaying { pauseBalls() } else { showCursorNow() }
             gamePaused = true; isPlaying = false
-            pauseBalls()
             gameOverLabel.text = "PAUSED"; gameOverLabel.fontColor = .yellow; gameOverLabel.isHidden = false
-        } else {
-            if gamePaused {
-                gamePaused = false; isPlaying = true
-                resumeBalls()
-                gameOverLabel.isHidden = true
-            } else {
-                isPlaying = true; gameOverLabel.isHidden = true; launchAllBalls(atSpeed: currentSpeed())
-            }
+        } else if gamePaused {
+            resumePlay()
+        } else if !inTransition {
+            isPlaying = true; gameOverLabel.isHidden = true; launchAllBalls(atSpeed: currentSpeed())
         }
         updateHUD()
     }
@@ -754,14 +828,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func restartGame() { score = 25; prepareGame() }
     
     func promptForLevel() {
-        if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
+        let paused = pauseForDialog()
         DispatchQueue.main.async {
             let tf = NSTextField(string: "\(self.level)")
             let okPressed = InputDialog.run(title: "Change Level", message: "Enter level number (1-99):", field: tf)
             if okPressed, let nl = Int(tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)), (1...99).contains(nl) {
                 self.level = nl; UserDefaults.standard.set(nl, forKey: "CurrentLevel"); self.score = 25; self.prepareGame()
-            } else if self.gamePaused {
-                self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true; self.updateHUD()
+            } else {
+                self.resumeAfterDialog(paused)
             }
         }
     }
@@ -779,7 +853,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     func promptForSpeed() {
-        if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
+        let paused = pauseForDialog()
         DispatchQueue.main.async {
             let nowPct = Int((self.currentSpeed() / self.baseSpeed * 100).rounded())
             let tf = NSTextField(string: "\(nowPct)")
@@ -801,17 +875,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     self.updateHUD()
                 }
             }
-            if self.gamePaused { self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true; self.updateHUD() }
+            self.resumeAfterDialog(paused)
         }
     }
     func confirmResetAll() {
-        if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
+        let paused = pauseForDialog()
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = "Reset All Progress?"; alert.informativeText = "This will reset score, level, speed and the high score for the current player. Other players keep their high scores. This cannot be undone."
             alert.alertStyle = .warning; alert.addButton(withTitle: "Reset All"); alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { self.resetAllProgress() }
-            else if self.gamePaused { self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true; self.updateHUD() }
+            else { self.resumeAfterDialog(paused) }
         }
     }
     // MARK: - Spillere og high scores
@@ -849,7 +923,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     /// Spørg hvem der spiller – vælg en eksisterende spiller eller skriv et nyt navn
     func promptForPlayer(firstTime: Bool = false) {
-        if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
+        let paused = pauseForDialog()
         DispatchQueue.main.async {
             let combo = NSComboBox(frame: NSRect(x: 0, y: 0, width: 200, height: 26))
             let names = self.allHighScores().keys.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
@@ -867,13 +941,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     self.selectPlayer("Player 1")
                 }
             }
-            if self.gamePaused { self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true }
-            self.updateHUD()
+            self.resumeAfterDialog(paused)
         }
     }
     /// Viser alle spilleres high scores, bedste først
     func showHighScores() {
-        if isPlaying { gamePaused = true; isPlaying = false; pauseBalls() }
+        let paused = pauseForDialog()
         DispatchQueue.main.async {
             self.saveHighScore()
             let list = self.allHighScores().sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
@@ -891,7 +964,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
-            if self.gamePaused { self.gamePaused = false; self.isPlaying = true; self.resumeBalls(); self.gameOverLabel.isHidden = true; self.updateHUD() }
+            self.resumeAfterDialog(paused)
         }
     }
 
@@ -1104,7 +1177,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     func handleMiss(_ b: SKShapeNode) {
         playMissSound()
-        slowDownAfterMiss()
+        // Kun når en af banens egne bolde misses, sættes farten ned – ikke for ekstra-bolde
+        if !isBonusBall(b) { slowDownAfterMiss() }
         if isBonusBall(b) {
             // Ekstra-bolde forsvinder bare, når de misses
             b.removeFromParent()
@@ -1302,15 +1376,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // +100 point (fast bonus)
         score += 100
         if score > highScore { highScore = score; saveHighScore() }
-        // Ekstra bold sendes ud fra stedet
-        let extra = SKShapeNode(circleOfRadius: 20)
-        configureBallPhysics(extra)
-        if extra.userData == nil { extra.userData = NSMutableDictionary() }
-        extra.userData?["bonus"] = true
-        extra.position = CGPoint(x: min(max(point.x, 40), size.width - 40), y: min(max(point.y, 120), size.height - 160))
-        addChild(extra)
-        extraBalls.append(extra)
-        launchBall(extra)
+        // Ekstra bold sendes ud fra stedet – men aldrig mere end maxBallsOnField (4) bolde på banen
+        if activeBalls.count < maxBallsOnField {
+            let extra = SKShapeNode(circleOfRadius: 20)
+            configureBallPhysics(extra)
+            if extra.userData == nil { extra.userData = NSMutableDictionary() }
+            extra.userData?["bonus"] = true
+            extra.position = CGPoint(x: min(max(point.x, 40), size.width - 40), y: min(max(point.y, 120), size.height - 160))
+            addChild(extra)
+            extraBalls.append(extra)
+            launchBall(extra)
+        }
         // Ballon med besked – forsvinder efter 3 sekunder, spillet kører videre
         showBalloon("EXTRA 100 POINT!", at: point)
         updateHUD()
@@ -1411,26 +1487,22 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     if hiddenRowsRemaining > 0 {
                         let nextBatch = min(hiddenRowsRemaining, maxVisibleRows)
                         hiddenRowsRemaining -= nextBatch
-                        gameOverLabel.text = "NEXT WAVE!"; gameOverLabel.fontColor = .orange; gameOverLabel.isHidden = false
-                        DispatchQueue.main.asyncAfter(deadline: .now()+0.8) {
+                        scheduleTransition(after: 0.8, text: "NEXT WAVE!", color: .orange) {
                             self.createBricks(rows: nextBatch)
                             self.centerBalls()
                             for b in self.allBalls { b.isHidden = false; self.launchBall(b) }
                             self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
                         }
                     } else {
-                        isPlaying = false
-                        for b in allBalls { b.physicsBody?.velocity = .zero }
                         let nextBalls = ballCount(for: level + 1)
-                        gameOverLabel.text = "LEVEL \(level) CLEAR! NEXT: \(ballsText(nextBalls))!"
-                        gameOverLabel.fontColor = .green; gameOverLabel.isHidden = false
-                        DispatchQueue.main.asyncAfter(deadline: .now()+1.5) {
+                        scheduleTransition(after: 1.5, text: "LEVEL \(level) CLEAR! NEXT: \(ballsText(nextBalls))!", color: .green) {
                             self.setupLevel(self.level + 1)
                             self.centerBalls()
                             for b in self.allBalls { b.isHidden = false }
                             self.launchAllBalls(atSpeed: self.currentSpeed()); self.isPlaying = true; self.gameOverLabel.isHidden = true; self.updateHUD()
                         }
                     }
+                    updateHUD()
                 }
             }
         }
@@ -1450,7 +1522,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             if n.name == "speedBox" || n === speedLabel || n.parent === speedBox { promptForSpeed(); return }
         }
     }
-    override func keyDown(with event: NSEvent) { if event.keyCode == 49 { handleStatusToggle() } }
+    override func keyDown(with event: NSEvent) {
+        // Cmd-genveje (fx Cmd+P) håndteres af menuen – her ignoreres de
+        if event.modifierFlags.contains(.command) { return }
+        switch event.keyCode {
+        case 49:                       // Mellemrum = Start / Pause / Fortsæt
+            handleStatusToggle()
+        case 53, 35:                   // Esc eller P = Pause / Fortsæt (starter ikke et nyt spil)
+            if isPlaying || gamePaused || inTransition { handleStatusToggle() }
+        default:
+            break                      // andre taster ignoreres (ingen bip)
+        }
+    }
     // MARK: - Musepil
     // Musepilen skjules mens man spiller og musen er over spillet.
     // Den vises igen ved pause, game over, dialoger, eller når musen er uden for vinduet.
@@ -1536,9 +1619,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 if isGameOver { break }
             }
         }
-        if startTime == 0 { startTime = currentTime }
-        let elapsed = currentTime - startTime
-        timeLabel.text = String(format: "%02d:%05.2f", Int(elapsed)/60, elapsed.truncatingRemainder(dividingBy: 60))
+        // Uret tæller kun mens der spilles, og nulstilles ved nyt spil (prepareGame)
+        playTime += dt
+        timeLabel.text = String(format: "%02d:%05.2f", Int(playTime)/60, playTime.truncatingRemainder(dividingBy: 60))
         // Speed-feltet opdateres løbende med boldens faktiske fart lige nu
         let liveSpeed = activeBalls.compactMap { $0.physicsBody?.velocity }.map { hypot($0.dx, $0.dy) }.max() ?? 0
         let livePct = Int((liveSpeed / baseSpeed * 100).rounded())
