@@ -230,8 +230,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
           and ⬢ hexagons (honeycomb)
         • Some levels have random standing bricks
         • Hit bricks explode and tumble down as 3D blocks
-        • Watch out: if a falling brick lands on your paddle,
-          it flies back to its place!
+        • Watch out: some falling bricks (random) fly back to
+          their place if they land on your paddle!
+        • BANK SHOT: if the ball hits a side wall and then a brick,
+          the brick falls – from any side (+3 points)
         • From level 2 some bricks have a silver rim and a number:
           they need 3 hits (ball or laser) before they break
         • Clear a level for fanfare and fireworks!

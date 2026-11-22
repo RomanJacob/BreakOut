@@ -40,6 +40,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var transitionColor: SKColor = .white
     /// Tælles op hver gang der bygges nye klodser – så en gammel klods aldrig kommer tilbage på en ny bane
     var brickGeneration = 0
+    /// Chance for at en faldende klods flyver tilbage, hvis den rammer pladen (ellers falder den bare igennem)
+    let brickReturnChance = 0.5
     /// Fanfaren der spiller under fejringen (så den kan stoppes ved nyt spil)
     var fanfareSound: NSSound?
     // Power-ups (logikken ligger i PowerUps.swift)
@@ -261,6 +263,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     func isArmed(_ b: SKNode) -> Bool { (b.userData?["armed"] as? Bool) ?? false }
+    /// Har bolden ramt en sidevæg siden den sidst ramte pladen eller en klods? (bandeskud)
+    func hasSideWallHit(_ b: SKNode) -> Bool { (b.userData?["sideWall"] as? Bool) ?? false }
+    func setSideWallHit(_ b: SKNode, _ on: Bool) {
+        if b.userData == nil { b.userData = NSMutableDictionary() }
+        b.userData?["sideWall"] = on
+    }
     func skin(_ b: SKNode) -> SKShapeNode? { b.childNode(withName: "skin") as? SKShapeNode }
     func setBallColor(_ b: SKShapeNode, _ c: SKColor) { skin(b)?.fillColor = c }
     /// Flad "squash" når bolden rammer pladen
@@ -764,6 +772,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func disarmBall(_ b: SKShapeNode) {
         if b.userData == nil { b.userData = NSMutableDictionary() }
         b.userData?["armed"] = false
+        b.userData?["sideWall"] = false
         b.physicsBody?.categoryBitMask = PhysicsCategory.ball
         b.physicsBody?.collisionBitMask = PhysicsCategory.paddle | PhysicsCategory.wall | PhysicsCategory.ball
         b.physicsBody?.contactTestBitMask = PhysicsCategory.paddle | PhysicsCategory.wall | PhysicsCategory.ball
@@ -772,6 +781,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     func armBall(_ b: SKShapeNode) {
         if b.userData == nil { b.userData = NSMutableDictionary() }
         b.userData?["armed"] = true
+        b.userData?["sideWall"] = false
         b.physicsBody?.categoryBitMask = PhysicsCategory.ball
         b.physicsBody?.collisionBitMask = PhysicsCategory.paddle | PhysicsCategory.wall | PhysicsCategory.brick | PhysicsCategory.ball
         b.physicsBody?.contactTestBitMask = PhysicsCategory.paddle | PhysicsCategory.brick | PhysicsCategory.wall | PhysicsCategory.ball
@@ -1076,9 +1086,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         brick.name = nil
         brick.removeFromParent()
         let generation = brickGeneration
-        fall3D(points: pts, color: color, at: pos) { [weak self] in
+        // Kun nogle af klodserne (tilfældigt) kan flyve tilbage, hvis de rammer pladen
+        let canReturn = Double.random(in: 0..<1) < brickReturnChance
+        fall3D(points: pts, color: color, at: pos, onPaddleHit: canReturn ? { [weak self] in
             self?.restoreBrick(brick, generation: generation)
-        }
+        } : nil)
     }
 
     /// En faldende klods ramte pladen: den flyver tilbage på sin plads
@@ -1264,6 +1276,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     func handleWallHit(wallName: String, ball: SKShapeNode) {
         guard let body = ball.physicsBody else { return }
+        // Bandeskud: husk at bolden har ramt en sidevæg (nulstilles af pladen eller næste klods)
+        if wallName == "leftWall" || wallName == "rightWall" { setSideWallHit(ball, true) }
         let speed = currentSpeed()
         var angle = atan2(body.velocity.dy, body.velocity.dx)
         if wallName == "leftWall" || wallName == "rightWall" { angle += CGFloat.random(in: -0.45...0.45) } else { angle += CGFloat.random(in: -0.35...0.35) }
@@ -1528,8 +1542,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 let vel = ball.physicsBody?.velocity ?? .zero
                 let hitFromBelow = dyContact < -2 || (ball.position.y < brick.position.y && vel.dy > 0)
                 let hitFromAbove = dyContact > 2 || (ball.position.y > brick.position.y && vel.dy < 0)
-                // 1) Øverste lag ramt oppefra -> ALDRIG fald, kun bounce
-                if isTopmostRow && hitFromAbove && !hitFromBelow {
+                // 0) Bandeskud: bolden ramte en sidevæg og derefter klodsen -> klodsen falder,
+                //    uanset hvilken side den bliver ramt fra
+                let bankShot = hasSideWallHit(ball)
+                setSideWallHit(ball, false)
+                if bankShot {
+                    floatingText("BANK SHOT!", at: CGPoint(x: brick.position.x, y: brick.position.y - 30), color: .systemYellow)
+                    addPoints(3, at: brick.position)
+                }
+                // 1) Øverste lag ramt oppefra -> ALDRIG fald, kun bounce (gælder ikke bandeskud)
+                if !bankShot && isTopmostRow && hitFromAbove && !hitFromBelow {
                     playHitSound()
                     let speed = currentSpeed()
                     if vel.dy < 0 {
@@ -1538,12 +1560,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     }
                     return
                 }
-                // 2) Generel regel: Kun hit nedefra får brick til at falde
-                if !hitFromBelow {
+                // 2) Generel regel: Kun hit nedefra (eller bandeskud) får brick til at falde
+                if !hitFromBelow && !bankShot {
                     playHitSound()
                     return
                 }
-                // 3) Hit nedefra -> klodser med flere lag mister et lag, ellers falder den som før
+                // 3) Hit nedefra eller bandeskud -> klodser med flere lag mister et lag, ellers falder den som før
                 if !damageBrick(brick) {
                     addPoints(1, at: brick.position)
                     playHitSound(); disarmBall(ball); updateHUD()
